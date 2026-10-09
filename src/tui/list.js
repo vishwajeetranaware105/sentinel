@@ -1,3 +1,4 @@
+import { term } from './term.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
@@ -67,6 +68,7 @@ export function PrList({ bb, cfg, dims, model, checks, setChecks, onReview, onOp
     else if (input === 'r') load([tab]);
     else if (input === 'm') setMode('models');
     else if (input === 'T') onTheme();
+    else if (input === 'U' && term.update) { term.updateRequested = true; onQuit(); }
     else if (input === 'e') { const o = ['low', 'medium', 'high']; onEffort(o[(o.indexOf(cfg.effort || 'medium') + 1) % 3]); }
     else if (input === 's') onSettings();
     else if (input === 'h') onHistory();
@@ -104,7 +106,7 @@ export function PrList({ bb, cfg, dims, model, checks, setChecks, onReview, onOp
     : [['↵', 'review'], ['u', 'link'], ['tab', 'lists'], ['/', 'filter'], ['c', 'checks'], ['m', 'models'], ['e', 'effort'], ['T', 'theme'], ['r', 'refresh'], ['h', 'history'], ['s', 'settings'], ['q', 'quit']];
 
   return html`
-    <${Frame} dims=${dims} title=${TABS.find((t) => t[0] === tab)[1]} right=${`${model} · verify ${cfg.llm.fastModel} · effort ${cfg.effort || 'medium'}`} keys=${keys}>
+    <${Frame} dims=${dims} title=${TABS.find((t) => t[0] === tab)[1]} right=${`${term.update ? `⬆ ${term.update} available · U to update   ` : ''}${model} · verify ${cfg.llm.fastModel} · effort ${cfg.effort || 'medium'}`} keys=${keys}>
       <${Box} paddingX=${1} gap=${2}>
         ${TABS.map(([id, label]) => html`<${Text} key=${id} color=${id === tab ? C.tx : C.dim} bold=${id === tab} underline=${id === tab}>${label} <${Text} color=${id === tab ? C.brand2 : C.mute}>${counts[id] ?? '…'}<//><//>`)}
         ${filter && mode !== 'filter' ? html`<${Text} color=${C.warn}>filter: ${filter}<//>` : ''}

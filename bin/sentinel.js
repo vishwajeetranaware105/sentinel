@@ -23,6 +23,13 @@ if (cmd === '--help' || cmd === '-h' || cmd === 'help') {
   console.log(HELP); process.exit(0);
 }
 if (cmd === '--version' || cmd === '-v') { console.log(pkg.version); process.exit(0); }
+if (cmd === 'update') {
+  const { refreshLatest, isNewer, runUpdate } = await import('../src/update.js');
+  const latest = await refreshLatest({ force: true });
+  if (latest && !isNewer(latest, pkg.version)) { console.log(`Sentinel ${pkg.version} is up to date.`); process.exit(0); }
+  console.log(latest ? `New version ${latest} available (you have ${pkg.version}).` : 'Could not check for the latest version; trying to update anyway.');
+  process.exit(runUpdate() ? 0 : 1);
+}
 
 const { loadConfig, isConfigured, CONFIG_PATH } = await import('../src/config.js');
 const { killAllMcp } = await import('../src/bitbucket.js');
@@ -69,16 +76,20 @@ if (cmd === 'config') {
   const { setTheme } = await import('../src/tui/kit.js');
   setTheme(loadConfig().theme || 'aurora');          // so the very first frame and the terminal background already match the theme
   const painter = installPainter(out);
-  out.write(`\x1b[?1049h\x1b]11;${painter.bottomHex}\x07`);
+  out.write(`\x1b[?1049h\x1b]11;${painter.bottomHex}\x07\x1b]10;#f2f2f4\x07`);
   painter.prime();
-  const restore = () => { painter.restore(); out.write('\x1b[0m\x1b]111\x07\x1b[?1049l'); };
+  const restore = () => { painter.restore(); out.write('\x1b[0m\x1b]111\x07\x1b]110\x07\x1b[?1049l'); };
   process.on('exit', restore);
   const { parsePrUrl } = await import('../src/bitbucket.js');
   const { term } = await import('../src/tui/term.js');
+  const upd = await import('../src/update.js');
+  term.update = upd.knownLatest(pkg.version);        // from the last check: instant
+  upd.refreshLatest().catch(() => {});               // refresh in the background for next time
   const app = render(React.createElement(App, { initialCfg: loadConfig(), initialPr: parsePrUrl(args[0]) }), { exitOnCtrlC: true });
   Object.assign(term, { out, painter, app, setRaw: (on) => process.stdin.setRawMode?.(on) });
   await app.waitUntilExit();
   restore();
+  if (term.updateRequested) { const { runUpdate } = await import('../src/update.js'); const ok = runUpdate(); console.log(ok ? '\nUpdated. Run `sentinel` again.' : '\nUpdate failed. Try `sentinel update`.'); process.exit(ok ? 0 : 1); }
   process.exit(0); // also reaps the Bitbucket MCP child
 } else {
   console.log(HELP);

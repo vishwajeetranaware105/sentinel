@@ -13,6 +13,9 @@ export const setBackgroundBottom = (rgb) => { GRADIENT_BOTTOM = rgb; };
 
 const lerp = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
 
+export const FG = [242, 242, 244];
+export const fgCode = (truecolor) => (truecolor ? `\x1b[38;2;${FG[0]};${FG[1]};${FG[2]}m` : '\x1b[38;5;255m');
+
 export function bgCode(rgb, truecolor) {
   if (truecolor) return `\x1b[48;2;${rgb[0]};${rgb[1]};${rgb[2]}m`;
   const avg = (rgb[0] + rgb[1] + rgb[2]) / 3 + 6;             // 256-colour terminals: nearest grey-ramp step
@@ -30,8 +33,8 @@ export function installPainter(out, { truecolor = /truecolor|24bit/i.test(proces
     const n = out.rows || lines.length;
     const painted = lines.map((ln, i) => {
       if (i === lines.length - 1 && ln === '') return ln;
-      const bg = rowBg(i, n);
-      return bg + ln.replace(/\x1b\[(?:0|49)?m/g, (x) => x + bg) + '\x1b[K';
+      const bg = rowBg(i, n), fg = fgCode(truecolor);
+      return bg + fg + ln.replace(/\x1b\[(?:0|49)?m/g, (x) => x + bg + fg).replace(/\x1b\[39m/g, (x) => x + fg) + '\x1b[K';
     }).join('\n');
     return orig(`\x1b[?2026h${m[1]}${painted}\x1b[?2026l`, ...rest);
   };
