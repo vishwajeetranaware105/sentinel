@@ -1,6 +1,6 @@
 {
   "name": "pr-sentinel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local PR review bot for Bitbucket Server: lists PRs you are tagged on, reviews them with Juspay-hosted models, verifies every finding, and posts only what you approve.",
   "type": "module",
   "bin": {

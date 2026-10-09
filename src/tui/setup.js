@@ -44,6 +44,11 @@ export function Setup({ cfg, onDone, onCancel, dims, first }) {
         setVals({ ...vals }); setStep(0);
       } else if (/^n/i.test(input)) setStep(0);
     }
+    if (step >= 0 && state.phase === 'edit' && FIELDS[step].key === 'provider') {
+      const opts = ['gateway', 'claude', 'codex'], at = Math.max(0, opts.indexOf(vals.provider));
+      if (key.leftArrow || key.rightArrow || key.tab || input === ' ') setVals({ ...vals, provider: opts[(at + (key.leftArrow ? opts.length - 1 : 1)) % opts.length] });
+      if (key.return) { const n = nextStep(step); n >= FIELDS.length ? finish() : setStep(n); }
+    }
     if (key.escape && !first && state.phase === 'edit') onCancel();
     if (state.phase === 'error' && (key.return || input === 'e')) setState({ phase: 'edit' });
     if (state.phase === 'error' && input === 's') finish(true);
@@ -69,7 +74,8 @@ export function Setup({ cfg, onDone, onCancel, dims, first }) {
       if (isCli(next.llm.provider)) {
         try { execFileSync(CLI_PROVIDERS[next.llm.provider].bin, ['--version'], { stdio: 'pipe', timeout: 15000 }); }
         catch { problems.push(`${CLI_PROVIDERS[next.llm.provider].label}: '${CLI_PROVIDERS[next.llm.provider].bin}' not found or not runnable on PATH`); }
-      } else try {
+      } else if (!next.llm.apiKey) problems.push('Juspay model API key is empty. Enter a gateway key, or go back (↑) and choose provider claude / codex, which need no key.');
+      else try {
         const r = await fetch(next.llm.baseURL.replace(/\/+$/, '') + '/models', { headers: { authorization: `Bearer ${next.llm.apiKey}` } });
         if (!r.ok) problems.push(`Model gateway answered ${r.status} (check URL / key)`);
       } catch (e) { problems.push(`Model gateway: ${trunc(e.message, 120)}`); }
@@ -91,6 +97,13 @@ export function Setup({ cfg, onDone, onCancel, dims, first }) {
             if (skipped(f)) return null;
             const v = vals[f.key];
             const shown = f.secret ? (v ? '•'.repeat(Math.min(v.length, 24)) : '') : v;
+            if (i === step && state.phase === 'edit' && f.key === 'provider') {
+              return html`<${Box} key=${f.key} flexDirection="column">
+                <${Text} color=${C.tx} bold>${f.label.replace(/ \(.*\)/, '')}<//>
+                <${Box}>${['gateway', 'claude', 'codex'].map((o) => html`<${Text} key=${o} backgroundColor=${o === v ? C.brand : undefined} color=${o === v ? C.bg : C.tx} bold=${o === v}> ${o} <//>`)}<//>
+                <${Text} color=${C.dim}>  ←/→ to choose, ↵ to continue. ${f.hint}<//>
+              <//>`;
+            }
             if (i === step && state.phase === 'edit') {
               return html`<${Box} key=${f.key} flexDirection="column" marginY=${0}>
                                 <${InputBox} label=${f.label} width=${Math.min(80, dims.w - 8)}><${TextInput} value=${v} mask=${f.secret ? '•' : undefined}
@@ -99,7 +112,7 @@ export function Setup({ cfg, onDone, onCancel, dims, first }) {
                 ${f.hint && html`<${Text} color=${C.dim}>  ${f.hint}<//>`}
               <//>`;
             }
-            return html`<${Text} key=${f.key} color=${i < step ? undefined : 'gray'}>${i < step ? '✓' : '·'} ${f.label}: <${Text} color=${C.brand2}>${trunc(shown, dims.w - 50)}<//><//>`;
+            return html`<${Text} key=${f.key} color=${i < step ? C.tx : C.dim}>${i < step ? '✓' : '·'} ${f.label}: <${Text} color=${C.brand2}>${trunc(shown, dims.w - 50)}<//><//>`;
           })}
         <//>
         ${state.phase === 'testing' && html`<${Box} marginTop=${1}><${Text} color=${C.brand}><${Spinner} type="dots" /><//><${Text}> Testing Bitbucket connection and model gateway (no tokens used)…<//><//>`}

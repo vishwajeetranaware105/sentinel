@@ -137,7 +137,7 @@ export function InputBox({ label, width, children }) {
   const top = head + '─'.repeat(Math.max(1, inner - head.length + 1)) + '╮';
   return html`<${Box} flexDirection="column" width=${inner + 2}>
     <${Grad} text=${top} step=2 />
-    <${Box}><${Text} color=${C.stops[0]}>│<//><${Box} width=${inner} paddingX=${1}><${Text} color=${C.stops[1]} bold>❯ <//>${children}<//><${Text} color=${C.stops[2]}>│<//><//>
+    <${Box}><${Text} color=${C.stops[0]}>│<//><${Box} width=${inner} paddingX=${1}><${Text} color=${C.stops[1]} bold>❯ <//><${Text} color=${C.tx}>${children}<//><//><${Text} color=${C.stops[2]}>│<//><//>
     <${Grad} text=${'╰' + '─'.repeat(inner) + '╯'} step=2 />
   <//>`;
 }
