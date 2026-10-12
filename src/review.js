@@ -106,8 +106,9 @@ Reply ONLY with JSON: {"results":[{"id":"","verdict":"addressed|not_addressed|ne
 
 const VERIFY_SYSTEM = `You verify code-review findings before the author sees them. You did not write them. Be skeptical: refute a finding if the code does not support it. Each finding comes with the diff near its line and search evidence already fetched from the real repository (the PR head branch).
 For each finding reply with a final verdict, or - only if essential - up to 2 extra searches:
-{"results":[{"id":"","verdict":"confirmed|downgrade|withdraw","severity":"blocker|major|minor","kind":"bug|breaking|suggestion","line":0,"reason":"one sentence: what you checked and found"},{"id":"","need":[{"op":"grep","pattern":"regex","glob":"*.kt","side":"head"},{"op":"read","file":"path","start":1,"count":40,"side":"head"}]}]}
+{"results":[{"id":"","verdict":"confirmed|downgrade|withdraw","refuted_by":"REQUIRED for withdraw: path:line plus the exact code that refutes it","severity":"blocker|major|minor","kind":"bug|breaking|suggestion","line":0,"reason":"one sentence: what you checked and found"},{"id":"","need":[{"op":"grep","pattern":"regex","glob":"*.kt","side":"head"},{"op":"read","file":"path","start":1,"count":40,"side":"head"}]}]}
 Add "body" (a corrected comment) ONLY if the existing comment is inaccurate; otherwise omit it.
+A withdraw is only valid if you can cite the specific code (path:line and its text) that proves the finding wrong, in "refuted_by". Not finding evidence is NOT a refutation: if the search output actually shows the described path (for example a ReRender or exit that rebuilds state from scratch), the finding stands. What the PR description or the author says the code does is a claim, not evidence: check it against the code. If you cannot confirm and cannot refute, use downgrade.
 withdraw = wrong, already handled (earlier guard, caller validates, fixed elsewhere in this PR) or unprovable. A "breaking" claim needs an actual consumer in the evidence. Trace each failure_scenario through the code: if you cannot show it can happen, withdraw. The PR description states the intent, so behaviour it describes is not a bug. ${COMMENT_STYLE}`;
 
 export const runs = new Map();
@@ -574,7 +575,8 @@ export class Review extends EventEmitter {
         if (!g) { f.score = null; f.gate = { appropriate: null, reason: 'Not vetted (no verdict returned).' }; continue; }
         f.score = Math.max(0, Math.min(100, Math.round(+g.score || 0)));
         f.gate = { appropriate: g.appropriate !== false && !g.duplicate_of, reason: g.reason || '' };
-        const need = f.kind === 'suggestion' ? this.effort.minSuggestion : this.effort.min;
+        const base = f.kind === 'suggestion' ? this.effort.minSuggestion : this.effort.min;
+        const need = f.verification.uncertain ? Math.min(base, 60) : base;      // the verifier could neither confirm nor refute: let a human judge
         if (g.duplicate_of) this.reject(f, `Duplicate of another finding. ${g.reason || ''}`);
         else if (g.appropriate === false) this.reject(f, `Not appropriate to post: ${g.reason || 'failed the vetting step'}`);
         else if (f.score < need) this.reject(f, `Scored ${f.score}/100, below the ${need} needed at ${d.effort} effort. ${g.reason || ''}`);
@@ -672,7 +674,11 @@ export class Review extends EventEmitter {
   applyVerdict(f, r) {
     const v = String(r.verdict).toLowerCase();
     f.verification.reason = r.reason || '';
-    if (v.startsWith('withdraw')) { f.verification.verdict = 'withdrawn'; f.status = 'rejected'; }
+    const cited = /[\w./-]+\.\w+:\d+/.test(String(r.refuted_by || '')) || /[\w./-]+\.\w+:\d+/.test(String(r.reason || ''));
+    if (v.startsWith('withdraw') && !cited) {      // a withdrawal must point at the code that refutes the finding; otherwise keep it, flagged
+      f.verification.verdict = 'downgraded'; f.verification.uncertain = true; f.verification.reason = `Verifier could not cite code that refutes this (it said: ${String(r.reason || '').slice(0, 160)}). Check it manually.`;
+      if (f.severity === 'blocker') f.severity = 'major';
+    } else if (v.startsWith('withdraw')) { f.verification.verdict = 'withdrawn'; f.status = 'rejected'; }
     else {
       f.verification.verdict = v.startsWith('down') ? 'downgraded' : 'confirmed';
       if (r.severity) f.severity = normSev(r.severity);
