@@ -91,6 +91,7 @@ A finding is NOT appropriate if any of these hold:
 - it duplicates another finding in this batch or a comment already on the PR (set "duplicate_of");
 - the wording is wrong for a code-review comment: a label or heading ("Bug:", "Suggestion", "Blocker"), a list, praise, emoji, vague hand-waving, speculation presented as fact, or an accusatory tone.
 A finding that was never verified against the code cannot score above 50 if it is a bug or breaking claim.
+Each finding carries "search_evidence" the verifier fetched from the real repository: read it before judging whether the failure can happen, and do not reject a bug because you cannot see the code yourself. Reject for appropriateness only on style, duplicates, wording, pre-existing code or an intent mismatch.
 If the finding is real but the comment text is weak, keep it and put a better "body" (same rules: plain prose, two short paragraphs, no labels).
 Reply ONLY with JSON: {"results":[{"id":"","score":0,"appropriate":true,"reason":"one sentence","duplicate_of":null,"body":"optional rewrite"}]}`;
 
@@ -556,6 +557,7 @@ export class Review extends EventEmitter {
         id: f.id, file: f.file, line: f.line, kind: f.kind, severity: f.severity, title: f.title,
         failure_scenario: f.failureScenario, comment: f.body,
         checked_against_repo: f.verification.verdict !== 'unverified', verifier_note: f.verification.reason,
+        search_evidence: (f.verification.evidence || []).map((e) => `${e.op} ${e.query}: ${String(e.result).slice(0, 500)}`).slice(0, 3),
         code_near_line: windowFor(this.files.find((x) => x.path === f.file), f.line || 0, 8, 1200),
       }));
       const user = `PR: ${d.pr.title}\nDescription (the stated intent): ${(d.pr.description || '(none)').replace(/\s+/g, ' ').slice(0, 1200)}\n${existing ? `Comments already on the PR:\n${existing}\n` : ''}\nFindings:\n${JSON.stringify(items)}`;
@@ -576,8 +578,13 @@ export class Review extends EventEmitter {
         f.score = Math.max(0, Math.min(100, Math.round(+g.score || 0)));
         f.gate = { appropriate: g.appropriate !== false && !g.duplicate_of, reason: g.reason || '' };
         const base = f.kind === 'suggestion' ? this.effort.minSuggestion : this.effort.min;
-        const need = f.verification.uncertain ? Math.min(base, 60) : base;      // the verifier could neither confirm nor refute: let a human judge
+        // A bug the verifier confirmed against the code needs a lower score than an unchecked one; one it could neither confirm nor refute
+        // goes to a human. The vetting model is the same cheap model and has not read the code, so it must not overrule the verifier on facts.
+        const checked = f.kind !== 'suggestion' && f.verification.verdict === 'confirmed';
+        const need = f.verification.uncertain ? Math.min(base, 60) : checked && d.effort !== 'low' ? Math.min(base, 70) : base;
+        const humanCall = f.kind !== 'suggestion' && (checked || f.verification.uncertain);
         if (g.duplicate_of) this.reject(f, `Duplicate of another finding. ${g.reason || ''}`);
+        else if (g.appropriate === false && humanCall) { f.gate.reason = `The vetting model doubts this: ${g.reason || ''} The verifier checked it against the code, so it is shown for you to judge.`; if (f.score < need) this.reject(f, `Scored ${f.score}/100, below the ${need} needed at ${d.effort} effort. ${g.reason || ''}`); }
         else if (g.appropriate === false) this.reject(f, `Not appropriate to post: ${g.reason || 'failed the vetting step'}`);
         else if (f.score < need) this.reject(f, `Scored ${f.score}/100, below the ${need} needed at ${d.effort} effort. ${g.reason || ''}`);
         else if (g.body && String(g.body).trim().length > 40) f.body = cleanComment(g.body);
