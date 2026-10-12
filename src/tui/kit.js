@@ -90,6 +90,7 @@ export function useReview(review) {
     let t = null;
     const on = () => { if (!t) t = setTimeout(() => { t = null; bump(); }, 120); };
     review.on('event', on);
+    bump();     // events fired before this effect ran (e.g. an all-cached review finishing instantly) were missed: re-read the state once
     return () => { review.off('event', on); clearTimeout(t); };
   }, [review]);
 }
