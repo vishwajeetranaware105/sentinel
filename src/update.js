@@ -43,7 +43,7 @@ export function installKind() {
 
 export function runUpdate() {
   const kind = installKind();
-  const [cmd, args] = kind === 'brew' ? ['sh', ['-c', 'brew update && brew upgrade sentinel']] : ['npm', ['install', '-g', `github:${APP_REPO}`]];
-  console.log(`Updating Sentinel (${kind}): ${kind === 'brew' ? 'brew update && brew upgrade sentinel' : `npm install -g github:${APP_REPO}`}\n`);
+  const [cmd, args] = kind === 'brew' ? ['sh', ['-c', 'brew update && brew upgrade --formula vishwajeetranaware105/sentinel/sentinel']] : ['npm', ['install', '-g', `github:${APP_REPO}`]];
+  console.log(`Updating Sentinel (${kind}): ${kind === 'brew' ? 'brew update && brew upgrade --formula vishwajeetranaware105/sentinel/sentinel' : `npm install -g github:${APP_REPO}`}\n`);
   return spawnSync(cmd, args, { stdio: 'inherit' }).status === 0;
 }

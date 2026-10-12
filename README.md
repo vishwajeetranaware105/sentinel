@@ -62,7 +62,7 @@ brew tap <you>/sentinel <TAP-GIT-URL>     # e.g. https://bitbucket.example.net/s
 brew install sentinel
 sentinel                                  # first launch walks through setup
 ```
-They need their own Bitbucket HTTP access token and Juspay model key (setup asks for them) and git access to the two repos below. Update later: `brew update && brew upgrade sentinel`.
+They need their own Bitbucket HTTP access token and Juspay model key (setup asks for them) and git access to the two repos below. Update later: `brew update && brew upgrade --formula vishwajeetranaware105/sentinel/sentinel`.
 
 **You publish, once:**
 
