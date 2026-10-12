@@ -106,6 +106,12 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel }) {
   const sumPost = d.summary && d.summary.post && d.summary.text && !d.summary.posted;
   const nPost = approved.length + (sumPost ? 1 : 0);
   const save = () => review.persist();
+  const [refreshing, setRefreshing] = useState(null);
+  // a review opened from history (or left open a while) may have an out-of-date conversation: re-read it once
+  useEffect(() => {
+    if (d.status === 'running' || d.status === 'preparing' || !d.pr || (d.discussionAt && Date.now() - d.discussionAt < 60000)) return;
+    review.refreshDiscussion().then((r) => { if (r.dropped) { setRefreshing(`Comments refreshed: ${r.dropped} stale draft${r.dropped === 1 ? '' : 's'} dropped`); setTimeout(() => setRefreshing(null), 5000); } }).catch(() => {});
+  }, [review]);
 
   useInput((input, key) => {
     if (mode === 'edit') {
@@ -129,6 +135,11 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel }) {
     else if (input === 'd' || key.pageDown) setScroll(scroll + 5);
     else if (input === 'u' || key.pageUp) setScroll(Math.max(0, scroll - 5));
     else if (key.tab || input === 'f') { setFilter(FILTERS[(FILTERS.indexOf(filter) + 1) % FILTERS.length]); setIdx(0); setScroll(0); }
+    else if (input === 'R' && !refreshing) {
+      setRefreshing('Refreshing comments…');
+      review.refreshDiscussion().then((r) => { setRefreshing(`Updated: ${r.threads} threads, ${r.needReply} awaiting your reply${r.dropped ? `, ${r.dropped} stale draft${r.dropped === 1 ? '' : 's'} dropped` : ''}`); setIdx(0); setScroll(0); setTimeout(() => setRefreshing(null), 4000); })
+        .catch((e) => { setRefreshing(`Refresh failed: ${e.message}`); setTimeout(() => setRefreshing(null), 5000); });
+    }
     else if (input === 'r' && cur?.isThread && !drafting?.id) {
       setDrafting({ id: cur.id });
       review.draftReply(cur.id).then(() => { setDrafting(null); setFilter('replies'); setIdx(9999); setScroll(0); })
@@ -160,7 +171,7 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel }) {
 
   if (running || d.status === 'error' || d.status === 'cancelled') {
     return html`
-      <${Frame} dims=${dims} title=${`#${d.pr.id} · ${trunc(d.pr.title || '', 50)}`} right=${tokens} keys=${running ? [['esc','cancel review']] : [['esc','back']]}>
+      <${Frame} dims=${dims} title=${`#${d.pr.id} · ${trunc(d.pr.title || '', 50)}`} right=${refreshing || tokens} keys=${running ? [['esc','cancel review']] : [['esc','back']]}>
         <${Box} flexDirection="column" paddingX=${2} paddingY=${1}>
           ${d.stages.map((s) => html`<${Box} key=${s.id}>
             <${Text} color=${s.state === 'done' ? C.ok : s.state === 'active' ? C.brand : 'gray'}>
@@ -193,7 +204,7 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel }) {
 
   return html`
     <${Frame} dims=${dims} title=${`#${d.pr.id} · ${trunc(d.pr.title || '', 46)}`} right=${tokens}
-      keys=${mode === 'edit' ? [['↵','save'],['esc','cancel']] : mode === 'confirm' ? [['y','post'],['n','back']] : [['↑↓','move'],['a','approve'],['x','reject'],['e','edit'],['t','comment/task'],['r','reply to thread'],['f','tab'],['d/u','scroll'],['p','post'],['esc','back']]}>
+      keys=${mode === 'edit' ? [['↵','save'],['esc','cancel']] : mode === 'confirm' ? [['y','post'],['n','back']] : [['↑↓','move'],['a','approve'],['x','reject'],['e','edit'],['t','comment/task'],['r','reply to thread'],['R','refresh comments'],['f','tab'],['d/u','scroll'],['p','post'],['esc','back']]}>
       <${Box} paddingX=${1}>
         ${FILTERS.map((f) => html`<${Text} key=${f} color=${f === filter ? C.brand : 'gray'} bold=${f === filter}>${f === filter ? '[' : ' '}${f} ${count(f)}${f === filter ? ']' : ' '} <//>`)}
         <${Text} color=${C.dim}> │ <${Text} color=${C.ok}>${approved.length} approved<//> · ${d.findings.filter((f) => f.status === 'posted').length} posted<//>

@@ -168,7 +168,7 @@ export class Review extends EventEmitter {
       this.eligibility(pr);
       this.commitMsgs = (commits?.commits || commits?.values || []).map((c) => (c.message || '').split('\n')[0]).filter(Boolean).slice(0, 15);
       const threads = await this.bb.discussion(ws, repo, prId).catch((e) => { this.log(`Could not read the existing comments (${e.message}); reviewing without them`); return null; });
-      this.setupDiscussion(threads);
+      this.setupDiscussion(threads); d.discussionAt = Date.now();
       this.files = parseDiff(typeof diffText === 'string' ? diffText : diffText?.diff || '');
       if (!this.files.length) throw new Error('Could not parse any files from the PR diff');
 
@@ -238,6 +238,38 @@ export class Review extends EventEmitter {
       return `- ${t.path ? `${t.path}:${t.line || ''}` : 'general'}${t.resolved ? ' (resolved)' : ''} ${who(first)}: ${q(first)}${rest.slice(0, 2).map((m) => ` -> ${who(m)}: ${q(m)}`).join('')}`.slice(0, 330);
     });
   }
+  /** An existing human comment already sits on (or within 3 lines of) this spot: do not post the same point twice. */
+  dupReason(c) {
+    const line = +c.line || 0;
+    const t = (this.threads || []).find((x) => x.path && c.file && (x.path === c.file || x.path.endsWith(c.file) || String(c.file).endsWith(x.path))
+      && x.line && line && Math.abs(x.line - line) <= 3 && x.messages.some((m) => m.role !== 'bot'));
+    if (!t) return null;
+    const first = t.messages.find((m) => m.role !== 'bot') || t.messages[0];
+    return `Already raised in an existing thread by ${first.role === 'me' ? 'you' : first.who}${t.resolved ? ' (resolved)' : ''} - see the Threads tab and press r to reply there instead.`;
+  }
+
+  /** Re-read the PR conversation from Bitbucket: new comments, replies, resolved threads. Drops drafts that are now stale. */
+  async refreshDiscussion() {
+    const d = this.data, { workspace: ws, repository: repo, id: prId } = d.pr;
+    const threads = await this.bb.discussion(ws, repo, prId);
+    this.setupDiscussion(threads);
+    d.discussionAt = Date.now();
+    let dropped = 0;
+    for (const f of d.findings) {
+      if (f.status === 'posted' || f.status === 'rejected') continue;
+      if (f.kind === 'reply') {
+        const t = this.threads.find((x) => x.id === f.thread);
+        if (!t || !t.needsReply) { f.status = 'rejected'; f.verification.verdict = 'withdrawn'; f.verification.reason = 'The thread changed since this draft was written (new reply, or resolved).'; dropped++; }
+        continue;
+      }
+      if (f.verification.verdict === 'withdrawn') continue;
+      const why = this.dupReason(f);
+      if (why) { f.status = 'rejected'; f.verification.verdict = 'withdrawn'; f.verification.reason = why; dropped++; }
+    }
+    this.persist(); this.emitEvent('update', {});
+    return { threads: d.discussion.total, needReply: d.discussion.needReply, dropped };
+  }
+
   replyCandidates() { return (this.threads || []).filter((t) => t.needsReply).sort((a, b) => b.last.at - a.last.at).slice(0, 12); }
 
   /** Cheap-model check of whether replies on the reviewer's own threads hold up; drafts a reply when they do not. */
@@ -394,7 +426,7 @@ export class Review extends EventEmitter {
       for (const c of this.dedupe(raw)) {
         const kind = normKind(c.kind);
         const why = kind !== 'suggestion' && String(c.failure_scenario || '').trim().length < 12 ? 'No concrete failure scenario was given.'
-          : this.onChangedLine(c) ? null : 'On a line this PR did not change (pre-existing).';
+          : this.onChangedLine(c) ? this.dupReason(c) : 'On a line this PR did not change (pre-existing).';
         if (why) this.push(this.withdrawn(c, why)); else candidates.push(c);
       }
       this.log(`${candidates.length} candidate${candidates.length === 1 ? '' : 's'} after mechanical filters; ${d.findings.length} dropped for free`);

@@ -22,15 +22,22 @@ export function PrList({ bb, cfg, dims, model, checks, setChecks, onReview, onOp
   const [url, setUrl] = useState('');
   const [urlState, setUrlState] = useState({ busy: false, error: null });
 
-  const load = (which = ['review', 'mine']) => {
+  const [stamp, setStamp] = useState(Date.now());
+  const [, tick] = useState(0);
+  const load = (which = ['review', 'mine'], silent = false) => {
     for (const t of which) {
-      setData((d) => ({ ...d, [t]: null })); setErr((e) => ({ ...e, [t]: null }));
+      if (!silent) { setData((d) => ({ ...d, [t]: null })); setErr((e) => ({ ...e, [t]: null })); }
       bb.listPrs(t === 'review' ? 'REVIEWER' : 'AUTHOR')
-        .then((prs) => setData((d) => ({ ...d, [t]: prs })))
-        .catch((e) => { setErr((x) => ({ ...x, [t]: e.message })); setData((d) => ({ ...d, [t]: [] })); });
+        .then((prs) => { setData((d) => ({ ...d, [t]: prs })); setStamp(Date.now()); })
+        .catch((e) => { if (silent) return; setErr((x) => ({ ...x, [t]: e.message })); setData((d) => ({ ...d, [t]: [] })); });
     }
   };
   useEffect(() => { load(); }, [bb]);
+  // keep the dashboard current without a keypress: quiet re-fetch every 60s (the list never blanks), clock refresh every 15s
+  useEffect(() => {
+    const a = setInterval(() => load(['review', 'mine'], true), 60000), b = setInterval(() => tick((n) => n + 1), 15000);
+    return () => { clearInterval(a); clearInterval(b); };
+  }, [bb]);
 
   const prs = data[tab];
   const matches = (prs || []).filter((p) => !filter || `${p.title} ${p.workspace}/${p.repository} ${p.author}`.toLowerCase().includes(filter.toLowerCase()));
@@ -65,7 +72,7 @@ export function PrList({ bb, cfg, dims, model, checks, setChecks, onReview, onOp
     else if (input === '/') setMode('filter');
     else if (input === 'u' || input === 'o') setMode('url');
     else if (input === 'c') setMode('checks');
-    else if (input === 'r') load([tab]);
+    else if (input === 'r') load(['review', 'mine']);
     else if (input === 'm') setMode('models');
     else if (input === 'T') onTheme();
     else if (input === 'U' && term.update) { term.updateRequested = true; onQuit(); }
@@ -106,7 +113,7 @@ export function PrList({ bb, cfg, dims, model, checks, setChecks, onReview, onOp
     : [['↵', 'review'], ['u', 'link'], ['tab', 'lists'], ['/', 'filter'], ['c', 'checks'], ['m', 'models'], ['e', 'effort'], ['T', 'theme'], ['r', 'refresh'], ['h', 'history'], ['s', 'settings'], ['q', 'quit']];
 
   return html`
-    <${Frame} dims=${dims} title=${TABS.find((t) => t[0] === tab)[1]} right=${`${term.update ? `⬆ ${term.update} available · U to update   ` : ''}${model} · verify ${cfg.llm.fastModel} · effort ${cfg.effort || 'medium'}`} keys=${keys}>
+    <${Frame} dims=${dims} title=${TABS.find((t) => t[0] === tab)[1]} right=${`↻ ${Math.max(0, Math.round((Date.now() - stamp) / 1000)) < 60 ? 'just now' : ago(new Date(stamp).toISOString())}   ${term.update ? `⬆ ${term.update} available · U to update   ` : ''}${model} · verify ${cfg.llm.fastModel} · effort ${cfg.effort || 'medium'}`} keys=${keys}>
       <${Box} paddingX=${1} gap=${2}>
         ${TABS.map(([id, label]) => html`<${Text} key=${id} color=${id === tab ? C.tx : C.dim} bold=${id === tab} underline=${id === tab}>${label} <${Text} color=${id === tab ? C.brand2 : C.mute}>${counts[id] ?? '…'}<//><//>`)}
         ${filter && mode !== 'filter' ? html`<${Text} color=${C.warn}>filter: ${filter}<//>` : ''}

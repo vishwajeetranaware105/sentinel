@@ -118,6 +118,10 @@ export class LLM {
     const { text, finish } = await this._chat(messages, opts);
     const parsed = extractJson(text);
     if (parsed !== undefined) return parsed;
+    if (!text.trim() && finish === 'length' && !opts?._grown) {
+      // reasoning models can burn the whole allowance thinking: retry once with triple the room
+      return this.json(messages, { ...opts, maxTokens: Math.min(16000, (opts?.maxTokens || 2000) * 3), _grown: true });
+    }
     if (!text.trim() && finish === 'length') {
       throw new Error(`${opts?.model || this.cfg.model} used all ${opts?.maxTokens} tokens thinking and wrote no answer (try a non-reasoning model for this step)`);
     }

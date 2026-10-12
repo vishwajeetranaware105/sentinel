@@ -30,10 +30,10 @@ const mkBb = (state = 'OPEN', title = 'Return typed errors in auth handler') => 
   getPr: async () => ({ title, state, description: 'Adds token issuing to the auth handler. Missing ids should still fail the request.', author: 'Dev One',
     author_username: 'dev@x.com', source_branch: 'feat', destination_branch: 'main', source_commit: 'abc123def456', web_url: 'x', version: 1, active_comments: [{ author: 'Rev', text: 'Please add a log line when tokens are issued' }] }),
   discussion: async () => [
-    { id: 101, path: 'src/auth.rs', line: 13, lineType: 'ADDED', orphaned: false, resolved: false, task: true, messages: [
+    { id: 101, path: 'src/auth.rs', line: 28, lineType: 'ADDED', orphaned: false, resolved: false, task: true, messages: [
       { id: 101, parentId: null, who: 'Me Reviewer', email: 'me@x.com', slug: 'me', text: 'unwrap will panic when the id is missing', at: 1000, state: 'OPEN', severity: 'BLOCKER' },
       { id: 102, parentId: 101, who: 'Dev One', email: 'dev@x.com', slug: 'dev', text: 'this is guarded earlier in the auth middleware, so id is always present', at: 2000, state: 'OPEN', severity: 'NORMAL' }] },
-    { id: 201, path: 'src/auth.rs', line: 44, lineType: 'ADDED', orphaned: false, resolved: true, task: false, messages: [
+    { id: 201, path: 'src/auth.rs', line: 30, lineType: 'ADDED', orphaned: false, resolved: true, task: false, messages: [
       { id: 201, parentId: null, who: 'Other Rev', email: 'o@x.com', slug: 'o', text: 'nit: rename items', at: 500, state: 'RESOLVED', severity: 'NORMAL' }] },
     { id: 301, path: null, line: null, lineType: null, orphaned: false, resolved: false, task: false, messages: [
       { id: 301, parentId: null, who: 'Tara', email: 'tara@x.com', slug: 'tara', text: '🤖 Curator Bot - Slack Thread Link', at: 100, state: 'OPEN', severity: 'NORMAL' }] }],
@@ -124,6 +124,16 @@ ok(d2.kind === 'reply' && d2.reply.parentId === 201 && r.data.findings.includes(
 const low = await run('low', '(needs 85)');
 const lowShown = low.r.data.findings.filter((f) => f.verification.verdict !== 'withdrawn' && f.kind !== 'reply').map((f) => f.title);
 ok(!lowShown.includes('len() - 1 underflows on empty items') && lowShown.length === 2, `low effort (needs 85) hides the 82-score finding, shows ${lowShown.length}`);
+
+// --- stale conversation handling
+ok(!!r.dupReason({ file: 'src/auth.rs', line: 29 }) && /Already raised/.test(r.dupReason({ file: 'src/auth.rs', line: 29 })), 'a finding next to an existing human thread is flagged as already raised');
+ok(r.dupReason({ file: 'src/auth.rs', line: 40 }) === null, 'a finding far from any thread is not');
+const before = d2;                      // an unposted reply draft whose thread is not awaiting you any more
+const fresh = (await mkBb('OPEN').discussion()).map((t) => (t.id === 101 ? { ...t, messages: [...t.messages, { id: 103, parentId: 101, who: 'Me Reviewer', email: 'me@x.com', slug: 'me', text: 'ok, fair, thanks', at: 3000, state: 'OPEN', severity: 'NORMAL' }] } : t));
+r.bb.discussion = async () => fresh;
+const rf = await r.refreshDiscussion();
+ok(before.status === 'rejected' && before.verification.verdict === 'withdrawn' && /changed since/.test(before.verification.reason), 'refresh drops a reply draft once its thread no longer needs a reply');
+ok(rf.needReply === 0 && r.data.discussionAt > 0, 'refresh recomputes threads awaiting your reply');
 
 const merged = await run('medium', '(merged PR)', mkBb('MERGED'));
 ok(merged.r.data.blocked && merged.r.data.notices.some((n) => /MERGED/.test(n.text)), 'merged PR is blocked with a notice');
