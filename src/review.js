@@ -500,7 +500,7 @@ export class Review extends EventEmitter {
       + `${names ? `\n\nNEW NAMES THIS PR INTRODUCES and every place that references them (check each is initialised, preserved, reset and used consistently):\n${names}` : ''}`
       + `${callers ? `\n\nCODE OUTSIDE THE DIFF (real references found by search on the PR branch AND on the latest target branch; a reference marked ONLY on latest <branch> will break when this PR merges; use these to judge breaking changes):\n${callers}` : ''}`;
     const messages = [{ role: 'system', content: pass ? PASS_B_SYSTEM : ANALYZE_SYSTEM }, { role: 'user', content: user }];
-    const opts = { model: this.data.model, maxTokens: 8000, reasoning: this.data.effort, signal: this.abort.signal, label: `analysis ${i + 1}/${this.chunks.length}${pass ? ' (2nd reader)' : ''}` };
+    const opts = { model: this.data.model, maxTokens: 16000, reasoning: this.data.effort, signal: this.abort.signal, label: `analysis ${i + 1}/${this.chunks.length}${pass ? ' (2nd reader)' : ''}` };
     let res = await this.llm.json(messages, opts);
     // The reviewer may ask to look at other code before concluding (like Claude Code reading files): one round, a few lookups, run in code.
     const need = (!Array.isArray(res) && Array.isArray(res.need) ? res.need : []).filter((n) => n && (n.grep || n.pattern || n.file)).slice(0, 6);
