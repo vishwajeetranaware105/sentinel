@@ -418,7 +418,7 @@ export class Review extends EventEmitter {
         if (this.abort.signal.aborted) return;
         if (this.llm.overBudget()) { d.budgetHit = true; return; }
         try { raw.push(...await this.analyzeChunk(chunk, i, pass)); }
-        catch (e) { if (e.budget) d.budgetHit = true; else this.log(`Chunk ${i + 1} (pass ${pass + 1}) failed: ${e.message}`); }
+        catch (e) { if (e.budget) d.budgetHit = true; else { d.failedChunks = (d.failedChunks || 0) + 1; this.log(`Chunk ${i + 1} (pass ${pass + 1}) failed: ${e.message}`); } }
         this.stage('analyze', 'active', `${++done}/${jobs.length}`);
       });
       if (d.budgetHit) this.log(`Token budget (${fmt(this.cfg.tokenBudget)}) reached - lower-risk files were not analyzed`);
@@ -704,10 +704,10 @@ export class Review extends EventEmitter {
     const d = this.data, kept = d.findings.filter((f) => f.verification.verdict !== 'withdrawn' && f.kind !== 'reply');
     const issues = kept.filter((f) => f.kind !== 'suggestion'), sugg = kept.length - issues.length;
     const blocking = issues.filter((f) => f.severity === 'blocker' || f.asTask);
-    const rec = blocking.some((f) => f.severity === 'blocker') ? 'blocked' : issues.length ? 'needs_work' : d.budgetHit ? 'incomplete' : 'approve';
+    const rec = blocking.some((f) => f.severity === 'blocker') ? 'blocked' : issues.length ? 'needs_work' : (d.budgetHit || d.failedChunks) ? 'incomplete' : 'approve';
     const n = this.files.length, files = `${n} changed file${n === 1 ? '' : 's'}`;
-    const partial = !!d.budgetHit;      // some files were never analysed: never claim the PR is clean
-    const text = partial && !issues.length ? `Only part of this PR was reviewed: the token budget ran out before every file was analysed, so this is not a clean bill of health. Raise the budget (s) and run again.`
+    const partial = !!(d.budgetHit || d.failedChunks);      // some files were never analysed: never claim the PR is clean
+    const text = partial && !issues.length ? (d.failedChunks ? `The review did not complete: ${d.failedChunks} analysis call${d.failedChunks === 1 ? '' : 's'} failed (see the log), so this is not a clean bill of health. Run it again, or pick a faster analysis model (m).` : `Only part of this PR was reviewed: the token budget ran out before every file was analysed, so this is not a clean bill of health. Raise the budget (s) and run again.`)
       : !kept.length ? `Went through the ${files} and did not find anything that needs to change before this merges.`
       : `Went through the ${files} and found ${issues.length ? `${issues.length} issue${issues.length === 1 ? '' : 's'} worth fixing` : 'no blocking issues'}${sugg ? `${issues.length ? ' and' : ','} ${sugg} suggestion${sugg === 1 ? '' : 's'}` : ''}${issues.length ? `: ${issues.slice(0, 4).map((f) => f.title.replace(/[.\s]+$/, '')).join('; ')}` : ''}. The details are in the inline comments.`;
     let gates = null;

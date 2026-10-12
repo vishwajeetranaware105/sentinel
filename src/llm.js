@@ -3,7 +3,7 @@ import { runCli, isCli } from './cli-llm.js';
 /** OpenAI-compatible streaming client for the Juspay LiteLLM gateway, with token metering and live progress. */
 export const estimateTokens = (text) => Math.ceil(String(text).length / 3.6);
 
-const IDLE_MS = 120000;     // no bytes at all for this long => abort and retry
+const IDLE_MS = 300000;     // no bytes at all for this long => abort and retry
 const TOTAL_MS = 600000;    // hard ceiling per call
 
 export class LLM {
