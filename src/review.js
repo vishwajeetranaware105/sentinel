@@ -8,7 +8,7 @@ import { parseDiff, isNoise, isLowValue, riskScore, capFile, chunkFiles, renderF
 import { RepoView } from './repo.js';
 import { LLM, estimateTokens } from './llm.js';
 
-const PROMPT_VERSION = 'v3';
+const PROMPT_VERSION = 'v4';
 const STAGES = [
   ['fetch', 'Fetch PR & diff'],
   ['analyze', 'Analyze changes'],
@@ -64,6 +64,7 @@ ${FALSE_POSITIVES}
 Every finding must be on an added/changed line, cite its destination line number from the left gutter (prefer an added "+" line), and for kind bug or breaking MUST include "failure_scenario": the concrete input or state that triggers it and the wrong result ("when X is empty, parse() returns null and the caller dereferences it -> crash"). No concrete scenario means do not report it.
 kind: bug (wrong behaviour / crash / security) | breaking (breaks existing callers, clients, data or contract) | suggestion (a real improvement that is worth the author's time).
 severity: blocker | major | minor. confidence: 0..1, your honest probability it is correct.
+Do not stop at the diff: you are given the surrounding code of each change and where its new names are used. Read it like an engineer who must live with this code: trace the new state/value through its whole life (created, preserved across re-renders and reloads, reset, read), check siblings and neighbours of each change for the same defect, and check that an index, key or condition used in one place matches the one used in another. If you cannot judge without seeing other code, instead of guessing reply with {"need":[{"grep":"regex","glob":"*.ext"},{"file":"path","start":1,"count":60}]} (at most 6 lookups, run for you) and you will get a second turn.
 If a claim depends on code outside the diff, still report it with lower confidence and put up to 2 grep patterns that would prove or refute it in "verify" (the tool runs them for you).
 If repo guideline files are provided, flag a violation only when a guideline explicitly says so, and quote the rule in "failure_scenario".
 ${COMMENT_STYLE}
@@ -492,11 +493,30 @@ export class Review extends EventEmitter {
     const hit = cacheGet(key);
     const tag = `Chunk ${i + 1}/${this.chunks.length}${this.effort.passes > 1 ? ` pass ${pass + 1}` : ''}`;
     if (hit) { this.log(`${tag}: cached (0 tokens)`); return hit; }
-    const callers = await this.view.callerContext(chunk).catch(() => '');
+    const [callers, around, names] = await Promise.all([this.view.callerContext(chunk).catch(() => ''), this.view.enclosing(chunk).catch(() => ''), this.view.newNameRefs(chunk).catch(() => '')]);
     const guide = this.guideText();
-    const user = `${this.header()}\n${guide ? `\nREPO GUIDELINE FILES:\n${guide}\n` : ''}\nGutter numbers are destination-file line numbers.\n\n${chunk.map(renderFile).join('\n\n')}${callers ? `\n\nCODE OUTSIDE THE DIFF (real references found by search on the PR branch AND on the latest target branch; a reference marked ONLY on latest <branch> will break when this PR merges; use these to judge breaking changes):\n${callers}` : ''}`;
-    const res = await this.llm.json([{ role: 'system', content: pass ? PASS_B_SYSTEM : ANALYZE_SYSTEM }, { role: 'user', content: user }],
-      { model: this.data.model, maxTokens: 8000, reasoning: this.data.effort, signal: this.abort.signal, label: `analysis ${i + 1}/${this.chunks.length}${pass ? ' (2nd reader)' : ''}` });
+    const user = `${this.header()}\n${guide ? `\nREPO GUIDELINE FILES:\n${guide}\n` : ''}\nGutter numbers are destination-file line numbers.\n\n${chunk.map(renderFile).join('\n\n')}`
+      + `${around ? `\n\nSURROUNDING CODE (the full enclosing function/block of each change, read from the PR head; "+" marks lines this PR added). Read it: the cause of a bug is often here and not in the diff - state that is reset elsewhere, a sibling element in the same layout, another branch of the same case, an index used inconsistently.\n${around}` : ''}`
+      + `${names ? `\n\nNEW NAMES THIS PR INTRODUCES and every place that references them (check each is initialised, preserved, reset and used consistently):\n${names}` : ''}`
+      + `${callers ? `\n\nCODE OUTSIDE THE DIFF (real references found by search on the PR branch AND on the latest target branch; a reference marked ONLY on latest <branch> will break when this PR merges; use these to judge breaking changes):\n${callers}` : ''}`;
+    const messages = [{ role: 'system', content: pass ? PASS_B_SYSTEM : ANALYZE_SYSTEM }, { role: 'user', content: user }];
+    const opts = { model: this.data.model, maxTokens: 8000, reasoning: this.data.effort, signal: this.abort.signal, label: `analysis ${i + 1}/${this.chunks.length}${pass ? ' (2nd reader)' : ''}` };
+    let res = await this.llm.json(messages, opts);
+    // The reviewer may ask to look at other code before concluding (like Claude Code reading files): one round, a few lookups, run in code.
+    const need = (!Array.isArray(res) && Array.isArray(res.need) ? res.need : []).filter((n) => n && (n.grep || n.pattern || n.file)).slice(0, 6);
+    if (need.length && this.view.local) {
+      const got = [];
+      for (const n of need) {
+        const pat = n.grep || n.pattern;
+        const r = pat ? await this.view.grep({ pattern: String(pat).slice(0, 200), glob: n.glob || undefined, max: 12 }) : await this.view.read({ file: n.file, start: n.start, count: Math.min(+n.count || 60, 120) });
+        got.push(`${pat ? `grep ${pat}` : `read ${n.file}:${n.start || 1}`}\n${String(r).slice(0, 1800)}`);
+      }
+      this.log(`${tag}: reviewer looked up ${need.length} thing${need.length === 1 ? '' : 's'} in the repo`);
+      const first = (Array.isArray(res) ? res : res.findings || []).filter((f) => f && f.body && f.file);
+      messages.push({ role: 'assistant', content: JSON.stringify({ need }) }, { role: 'user', content: `Lookup results:\n${got.join('\n\n')}\n\nNow give your final findings as the same JSON ({"findings":[...]}), including any from before. No further lookups.` });
+      const res2 = await this.llm.json(messages, { ...opts, label: opts.label + ' + lookups' });
+      res = { findings: [...first, ...(Array.isArray(res2) ? res2 : res2.findings || [])] };
+    }
     const list = (Array.isArray(res) ? res : res.findings || []).filter((f) => f && f.body && f.file);
     cachePut(key, list);
     this.log(`${tag}: ${chunk.length} file${chunk.length === 1 ? '' : 's'} -> ${list.length}`);

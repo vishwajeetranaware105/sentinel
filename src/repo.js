@@ -150,6 +150,62 @@ export class RepoView {
   }
 }
 
+
+const CLOSER = /^\s*[)}\]]|^\s*(--|\/\/|#|\*|\/\*)/;
+const IDENT = /\b[a-z][A-Za-z0-9_]{7,}\b/g;
+
+/**
+ * Surrounding code, not just the diff: the whole enclosing function/block around each hunk, read from the PR head.
+ * Findings still have to sit on changed lines, but their cause is often a few lines away (a reset in initialState,
+ * a sibling in the same layout, the other branch of a case). Token cost is bounded by maxChars.
+ */
+RepoView.prototype.enclosing = async function enclosing(files, { maxChars = 16000, maxBlock = 90 } = {}) {
+  if (!this.local) return '';
+  const out = []; let used = 0;
+  for (const f of files) {
+    if (used >= maxChars) break;
+    const added = f.hunks.flatMap((h) => h.lines).filter((l) => l.type === 'ADDED' && l.new).map((l) => l.new);
+    if (!added.length) continue;
+    const text = await git(this.dir, ['show', `${this.ref('head')}:${f.path}`], { timeout: 30000 }).catch(() => null);
+    if (text == null) continue;
+    const lines = text.split('\n'), isAdded = new Set(added);
+    const top = (i) => lines[i] && !/^\s/.test(lines[i]) && !CLOSER.test(lines[i]);
+    const ranges = [];
+    for (const n of [...new Set(added)].sort((a, b) => a - b)) {
+      let a = n - 1; while (a > 0 && !top(a)) a--;
+      let b = n - 1; while (b < lines.length - 1 && !(b > n - 1 && top(b + 1) && !/^\s*$/.test(lines[b + 1]))) b++;
+      if (b - a + 1 > maxBlock) { a = Math.max(a, n - 1 - 25); b = Math.min(b, n - 1 + 25); }
+      const last = ranges[ranges.length - 1];
+      if (last && a <= last[1] + 1) last[1] = Math.max(last[1], b); else ranges.push([a, b]);
+    }
+    for (const [a, b] of ranges) {
+      if (used >= maxChars) break;
+      const body = lines.slice(a, b + 1).map((t, i) => `${isAdded.has(a + i + 1) ? '+' : ' '}${String(a + i + 1).padStart(4)} ${t}`).join('\n').slice(0, Math.min(5000, maxChars - used));
+      out.push(`${f.path} lines ${a + 1}-${b + 1}:\n${body}`); used += body.length;
+    }
+  }
+  return out.join('\n\n');
+};
+
+/** Names this PR introduces (present on the head, absent on the target branch) and every place that references them. */
+RepoView.prototype.newNameRefs = async function newNameRefs(files, { max = 8, maxChars = 4000 } = {}) {
+  if (!this.local) return '';
+  const count = new Map(), removed = new Set();
+  for (const f of files) for (const h of f.hunks) for (const l of h.lines) {
+    if (l.type === 'REMOVED') for (const m of l.text.match(IDENT) || []) removed.add(m);
+    if (l.type === 'ADDED') for (const m of l.text.match(IDENT) || []) count.set(m, (count.get(m) || 0) + 1);
+  }
+  const cands = [...count].filter(([n]) => !removed.has(n) && !GENERIC.test(n) && !/^(function|return|undefined|toString)$/.test(n)).sort((a, b) => b[1] - a[1]).slice(0, 24);
+  const parts = [];
+  for (const [name] of cands) {
+    if (parts.length >= max) break;
+    if ((await this.grep({ pattern: name, side: 'base', word: true, max: 1 })) !== 'no matches') continue;     // existed before the PR
+    const refs = await this.grep({ pattern: name, side: 'head', word: true, max: 10 });
+    parts.push(`${name}:\n${refs.split('\n').map((l) => '  ' + l.slice(0, 150)).join('\n')}`);
+  }
+  return parts.join('\n').slice(0, maxChars);
+};
+
 const GUIDE_FILES = new Set(['CLAUDE.md', 'AGENTS.md', 'CONTRIBUTING.md', '.cursorrules', 'copilot-instructions.md']);
 
 /**
