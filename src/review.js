@@ -239,10 +239,11 @@ export class Review extends EventEmitter {
     });
   }
   /** An existing human comment already sits on (or within 3 lines of) this spot: do not post the same point twice. */
+  /** A finding is a duplicate only of an OPEN thread. A resolved thread may have been closed without the code changing, so it must not hide a bug that is still there. */
   dupReason(c) {
     const line = +c.line || 0;
     const t = (this.threads || []).find((x) => x.path && c.file && (x.path === c.file || x.path.endsWith(c.file) || String(c.file).endsWith(x.path))
-      && x.line && line && Math.abs(x.line - line) <= 3 && x.messages.some((m) => m.role !== 'bot'));
+      && !x.resolved && x.line && line && Math.abs(x.line - line) <= 3 && x.messages.some((m) => m.role !== 'bot'));
     if (!t) return null;
     const first = t.messages.find((m) => m.role !== 'bot') || t.messages[0];
     return `Already raised in an existing thread by ${first.role === 'me' ? 'you' : first.who}${t.resolved ? ' (resolved)' : ''} - see the Threads tab and press r to reply there instead.`;
@@ -420,6 +421,8 @@ export class Review extends EventEmitter {
         this.stage('analyze', 'active', `${++done}/${jobs.length}`);
       });
       if (d.budgetHit) this.log(`Token budget (${fmt(this.cfg.tokenBudget)}) reached - lower-risk files were not analyzed`);
+      // The budget limits analysis only. Verification and vetting always get their own room, so findings are never shown unchecked.
+      if (this.llm.budget > 0) this.llm.budget = Math.max(this.llm.budget, this.llm.total + 40000);
 
       // Mechanical filters first (cost nothing): concrete failure scenario, and only on lines this PR changed.
       const candidates = [];
@@ -681,9 +684,11 @@ export class Review extends EventEmitter {
     const d = this.data, kept = d.findings.filter((f) => f.verification.verdict !== 'withdrawn' && f.kind !== 'reply');
     const issues = kept.filter((f) => f.kind !== 'suggestion'), sugg = kept.length - issues.length;
     const blocking = issues.filter((f) => f.severity === 'blocker' || f.asTask);
-    const rec = blocking.some((f) => f.severity === 'blocker') ? 'blocked' : issues.length ? 'needs_work' : 'approve';
+    const rec = blocking.some((f) => f.severity === 'blocker') ? 'blocked' : issues.length ? 'needs_work' : d.budgetHit ? 'incomplete' : 'approve';
     const n = this.files.length, files = `${n} changed file${n === 1 ? '' : 's'}`;
-    const text = !kept.length ? `Went through the ${files} and did not find anything that needs to change before this merges.`
+    const partial = !!d.budgetHit;      // some files were never analysed: never claim the PR is clean
+    const text = partial && !issues.length ? `Only part of this PR was reviewed: the token budget ran out before every file was analysed, so this is not a clean bill of health. Raise the budget (s) and run again.`
+      : !kept.length ? `Went through the ${files} and did not find anything that needs to change before this merges.`
       : `Went through the ${files} and found ${issues.length ? `${issues.length} issue${issues.length === 1 ? '' : 's'} worth fixing` : 'no blocking issues'}${sugg ? `${issues.length ? ' and' : ','} ${sugg} suggestion${sugg === 1 ? '' : 's'}` : ''}${issues.length ? `: ${issues.slice(0, 4).map((f) => f.title.replace(/[.\s]+$/, '')).join('; ')}` : ''}. The details are in the inline comments.`;
     let gates = null;
     if (this.profile) {
@@ -692,7 +697,7 @@ export class Review extends EventEmitter {
         return [g, f ? `BLOCKER ${f.file}:${f.line || '?'} ${f.title}` : 'PASS'];
       }));
     }
-    return { text, recommendation: rec, gates, post: true };
+    return { text, recommendation: rec, gates, post: rec !== 'incomplete' };
   }
 
   // ---- posting: only ever called after explicit user confirmation -------------------------------

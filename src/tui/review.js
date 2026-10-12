@@ -218,7 +218,7 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel }) {
             const bg = sel ? C.sel : undefined, w = leftW - 2;
             if (f.summary) return html`<${Box} key="sum" flexDirection="column">
               <${Row} width=${w} bg=${bg} segs=${[[sel ? '▌' : ' ', C.brand2], [' Review summary', C.tx, true]]} />
-              <${Row} width=${w} bg=${bg} segs=${[[sel ? '▌' : ' ', C.brand2], ['   ' + (rec === 'blocked' ? 'Blocked' : rec === 'approve' ? 'Looks good' : 'Needs work') + (d.summary.post ? '' : ' (not posting)'), rec === 'blocked' ? C.bad : rec === 'approve' ? C.ok : C.warn]]} />
+              <${Row} width=${w} bg=${bg} segs=${[[sel ? '▌' : ' ', C.brand2], ['   ' + (rec === 'blocked' ? 'Blocked' : rec === 'approve' ? 'Looks good' : rec === 'incomplete' ? 'Incomplete - budget ran out' : 'Needs work') + (d.summary.post ? '' : ' (not posting)'), rec === 'blocked' ? C.bad : rec === 'approve' ? C.ok : C.warn]]} />
             <//>`;
             if (f.isThread) {
               const col = f.resolved ? C.ok : C.warn;
