@@ -289,7 +289,7 @@ export class Review extends EventEmitter {
       let results = cacheGet(key);
       if (!results) {
         const r = await this.llm.json([{ role: 'system', content: REPLY_SYSTEM }, { role: 'user', content: `PR: ${d.pr.title}\nDescription: ${(d.pr.description || '(none)').replace(/\s+/g, ' ').slice(0, 600)}\nforce: ${force}\nThreads:\n${JSON.stringify(items)}` }],
-          { model: d.verifyModel, maxTokens: 1500 + batch.length * 500, reasoning: 'low', signal: this.abort.signal, label: force ? 'draft reply' : `check replies ${i / 4 + 1}` });
+          { model: d.verifyModel, maxTokens: 3000 + batch.length * 900, reasoning: 'low', signal: this.abort.signal, label: force ? 'draft reply' : `check replies ${i / 4 + 1}` });
         results = Array.isArray(r) ? r : r.results || [];
         cachePut(key, results);
       }
@@ -538,7 +538,7 @@ export class Review extends EventEmitter {
       let results = [];
       try {
         const r = await this.llm.json([{ role: 'system', content: GATE_SYSTEM }, { role: 'user', content: user }],
-          { model: d.verifyModel, maxTokens: 2500, reasoning: 'low', signal: this.abort.signal, label: `vet comments ${i / 8 + 1}` });
+          { model: d.verifyModel, maxTokens: 4500, reasoning: 'low', signal: this.abort.signal, label: `vet comments ${i / 8 + 1}` });
         results = Array.isArray(r) ? r : r.results || [];
       } catch (e) {
         this.log(`Vetting step failed (${e.budget ? 'token budget' : e.message}); those findings are shown unvetted`);
@@ -619,7 +619,7 @@ export class Review extends EventEmitter {
     const ask = async (items, label) => {
       const user = `PR: ${d.pr.title}\nPR description (the intent): ${(d.pr.description || '(none)').replace(/\s+/g, ' ').slice(0, 800)}\nSearch: ${this.view.local ? 'git grep on the real branches' : 'Bitbucket search only'}\nFindings:\n${JSON.stringify(items.map(view))}`;
       const r = await this.llm.json([{ role: 'system', content: VERIFY_SYSTEM }, { role: 'user', content: user }],
-        { model: d.verifyModel, maxTokens: Math.min(4000, 600 + items.length * 500), reasoning: 'low', signal: this.abort.signal, label });
+        { model: d.verifyModel, maxTokens: Math.min(7000, 2000 + items.length * 900), reasoning: 'low', signal: this.abort.signal, label });
       return new Map((Array.isArray(r) ? r : r.results || []).map((x) => [x.id, x]));
     };
     let byId = new Map();

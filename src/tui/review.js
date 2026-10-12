@@ -180,6 +180,7 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel }) {
           <${Box} marginTop=${1}><${Bar} value=${usage.total || 0} max=${cfg.tokenBudget || usage.total || 1} width=${30} /><${Text} color=${C.dim}>  ${tokens}${usage.estimated ? ' (est.)' : ''}<//><//>
           ${(d.live || []).length > 0 && html`<${Box} marginTop=${1} flexDirection="column">
             <${Text} color=${C.dim}>Model activity<//>
+            ${(d.live || []).some((c) => c.phase === 'thinking' && Date.now() - c.t0 > 90000) && html`<${Text} color=${C.warn}>A reasoning model is thinking for a long time on this step. Press esc to stop, then pick a faster model for verification (m on the PR list).<//>`}
             ${d.live.map((c) => html`<${Text} key=${c.id}><${Text} color=${C.brand}><${Spinner} type="dots" /><//><${Text} color=${C.tx}> ${trunc(c.label || 'call', 28)}<//> <${Text} color=${C.dim}>${c.model} · <//><${Text} color=${c.phase === 'writing' ? C.ok : c.phase === 'thinking' ? C.warn : C.dim}>${c.phase}<//><${Text} color=${C.dim}> · ${c.tokens > 0 ? c.tokens + ' tok · ' : ''}${Math.round((Date.now() - c.t0) / 1000)}s<//><//>`)}
           <//>`}
           <${Box} marginTop=${1} flexDirection="column">
