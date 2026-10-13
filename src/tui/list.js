@@ -11,7 +11,7 @@ import { Logo } from './logo.js';
 
 const TABS = [['review', 'Review requested'], ['mine', 'My PRs']];
 
-export function PrList({ bb, cfg, dims, model, checks, setChecks, onReview, onOpenUrl, onSettings, onHistory, onQuit, onModels, onEffort, onTheme }) {
+export function PrList({ bb, cfg, dims, model, checks, setChecks, onReview, onOpenUrl, onSettings, onHistory, onQuit, onModels, onEffort, onTheme, onFix }) {
   const [data, setData] = useState({ review: null, mine: null });
   const [err, setErr] = useState({});
   const [tab, setTab] = useState('review');
@@ -80,6 +80,7 @@ export function PrList({ bb, cfg, dims, model, checks, setChecks, onReview, onOp
     else if (input === 's') onSettings();
     else if (input === 'h') onHistory();
     else if (input === 'q') onQuit();
+    else if (input === 'f' && tab === 'mine' && pr) onFix(pr);
     else if (key.return && pr) onReview(pr);
   });
 
@@ -110,7 +111,7 @@ export function PrList({ bb, cfg, dims, model, checks, setChecks, onReview, onOp
     : mode === 'url' ? [['↵', 'open PR'], ['esc', 'cancel']]
     : mode === 'models' ? [['↵', 'use'], ['tab', 'switch column'], ['n', 'type name'], ['esc', 'done']]
     : mode === 'checks' ? [['↑↓', 'move'], ['space', 'toggle'], ['esc', 'done']]
-    : [['↵', 'review'], ['u', 'link'], ['tab', 'lists'], ['/', 'filter'], ['c', 'checks'], ['m', 'models'], ['e', 'effort'], ['T', 'theme'], ['r', 'refresh'], ['h', 'history'], ['s', 'settings'], ['q', 'quit']];
+    : [['↵', 'review'], ...(tab === 'mine' ? [['f', 'fix comments']] : []), ['u', 'link'], ['tab', 'lists'], ['/', 'filter'], ['c', 'checks'], ['m', 'models'], ['e', 'effort'], ['T', 'theme'], ['r', 'refresh'], ['h', 'history'], ['s', 'settings'], ['q', 'quit']];
 
   return html`
     <${Frame} dims=${dims} title=${TABS.find((t) => t[0] === tab)[1]} right=${`↻ ${Math.max(0, Math.round((Date.now() - stamp) / 1000)) < 60 ? 'just now' : ago(new Date(stamp).toISOString())}   ${term.update ? `⬆ ${term.update} available · U to update   ` : ''}${model} · verify ${cfg.llm.fastModel} · effort ${cfg.effort || 'medium'}`} keys=${keys}>
@@ -152,7 +153,7 @@ export function PrList({ bb, cfg, dims, model, checks, setChecks, onReview, onOp
               <${Text} bold color=${mode === 'checks' ? C.brand : C.tx}>Checks <${Text} color=${C.mute} bold=${false}>c to edit<//><//>
               ${CHECKS.map((c, k) => html`<${Text} key=${c.id} color=${mode === 'checks' && k === ci ? C.brand : checks.has(c.id) ? C.tx : C.mute}>${mode === 'checks' && k === ci ? '›' : ' '} ${checks.has(c.id) ? '◉' : '○'} ${c.label}<//>`)}
             <//>
-            <${Box} marginTop=${1}><${Grad} text="↵  Review this PR  →" bold /><//>
+            <${Box} marginTop=${1} flexDirection="column"><${Grad} text="↵  Review this PR  →" bold />${tab === 'mine' && html`<${Grad} text="f  Fix comments on this PR  →" bold />`}<//>
           <//>` : html`<${Box} flexDirection="column" marginTop=${1}><${Logo} /><${Box} marginTop=${2}><${Text} color=${C.dim}>Pick a PR on the left, or press <${Text} color=${C.brand2} bold>u<//> to paste a PR link.<//><//><//>`}
         <//>
       <//>

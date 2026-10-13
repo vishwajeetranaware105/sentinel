@@ -6,7 +6,7 @@ const GENERIC = /^(Decode|Encode|Show|Eq|Ord|Generic|Maybe|Either|Unit|Array|Str
 const SAFE_REF = /^[\w./@+-]+$/;
 
 /** Run git. Auth is a Bearer header passed through env (never in argv / remote URL / .git/config). */
-function git(cwd, args, { timeout = 120000, token, okCodes = [] } = {}) {
+export function git(cwd, args, { timeout = 120000, token, okCodes = [] } = {}) {
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
   if (token) Object.assign(env, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.extraHeader', GIT_CONFIG_VALUE_0: `Authorization: Bearer ${token}` });
   return new Promise((resolve, reject) => {

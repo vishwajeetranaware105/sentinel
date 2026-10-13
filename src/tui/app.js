@@ -9,6 +9,8 @@ import { Confirm, ReviewScreen } from './review.js';
 import { Bitbucket } from '../bitbucket.js';
 import { term } from './term.js';
 import { Review, runs } from '../review.js';
+import { FixScreen } from './fix.js';
+import { FixSession } from '../fix.js';
 import { CHECKS } from '../checks.js';
 import { isConfigured, saveConfig, RUNS_DIR } from '../config.js';
 
@@ -18,6 +20,7 @@ export function App({ initialCfg, initialPr }) {
   const [cfg, setCfg] = useState(initialCfg);
   const [screen, setScreen] = useState(isConfigured(initialCfg) ? 'list' : 'setup');
   const [review, setReview] = useState(null);
+  const [fix, setFix] = useState(null);
   const [checks, setChecks] = useState(() => new Set(CHECKS.filter((c) => c.default).map((c) => c.id)));
   const [model, setModel] = useState(initialCfg.llm.model);
   const [theme, setThemeName] = useState(() => setTheme(initialCfg.theme || 'aurora'));
@@ -54,10 +57,11 @@ export function App({ initialCfg, initialPr }) {
 
   if (screen === 'setup') return html`<${Setup} first=${!isConfigured(cfg)} cfg=${cfg} dims=${dims} onCancel=${() => setScreen('list')} onDone=${(c) => { setCfg(c); setModel(c.llm.model); setScreen('list'); }} />`;
   if (screen === 'confirm') return html`<${Confirm} review=${review} cfg=${cfg} dims=${dims} onModels=${(ch) => { applyModels(ch); review.setModels(ch); }} onEffort=${applyEffort} onBack=${() => setScreen('list')} onStart=${() => { review.execute(); setScreen('review'); }} />`;
+  if (screen === 'fix') return html`<${FixScreen} session=${fix} dims=${dims} onBack=${() => setScreen('list')} />`;
   if (screen === 'review') return html`<${ReviewScreen} review=${review} cfg=${cfg} dims=${dims} onBack=${() => setScreen(review.fromHistory ? 'history' : 'list')} onUserCancel=${() => setScreen('list')} />`;
   if (screen === 'history') return html`<${History} dims=${dims} bb=${bb} cfg=${cfg} onBack=${() => setScreen('list')} onOpen=${(r) => { setReview(r); setScreen('review'); }} />`;
   return html`<${PrList} bb=${bb} cfg=${cfg} dims=${dims} model=${model} checks=${checks} setChecks=${setChecks}
-    onReview=${startReview} onOpenUrl=${openUrl} onSettings=${() => setScreen('setup')} onHistory=${() => setScreen('history')} onQuit=${quit} onModels=${applyModels} onEffort=${applyEffort} onTheme=${applyTheme} />`;
+    onReview=${startReview} onOpenUrl=${openUrl} onSettings=${() => setScreen('setup')} onHistory=${() => setScreen('history')} onQuit=${quit} onFix=${(pr) => { setFix(new FixSession({ cfg, bb, pr })); setScreen('fix'); }} onModels=${applyModels} onEffort=${applyEffort} onTheme=${applyTheme} />`;
 }
 
 function History({ dims, bb, cfg, onBack, onOpen }) {

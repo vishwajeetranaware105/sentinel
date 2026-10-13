@@ -20,6 +20,12 @@ sentinel                            # first launch walks you through setup
 
 **Effort levels** (`e` on the PR list or estimate screen): `low` (score ≥85, 6 findings), `medium` (≥80, 15), `high` (≥70, 25, plus an independent second reader that checks intent, guidelines and regressions).
 
+## Fixing comments on your own PR
+
+On the **My PRs** tab press `f` on a PR. Sentinel reads the open comments from other people, checks out your PR branch in `~/.pr-sentinel/fix/`, and for each comment you select it makes the smallest code change (or tells you why it made none and drafts a reply).
+
+You then see the diff and choose: `c` makes a **new commit** on top (safe, history kept), `m` **amends** your last commit (rewrites history, pushed with `--force-with-lease`, asks first). Nothing is committed without a key press, and nothing is pushed until you press `p` and confirm with `y`. It refuses to push to shared branches (master, main, develop, release/*) and never bypasses git hooks. Sentinel does not post replies in this mode; the suggested replies are shown so you can answer on the PR.
+
 ## Keys
 
 | Screen | Keys |
