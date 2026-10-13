@@ -87,9 +87,10 @@ function itemsFor(d, filter) {
   return d.summary && filter === 'all' ? [{ summary: true }, ...list] : list;
 }
 
-export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel }) {
+export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel, onFix }) {
   useReview(review);
   const d = review.data;
+  const isOwn = !!d.own || !!cfg.bitbucket.username && String(d.pr.authorEmail || '').toLowerCase() === String(cfg.bitbucket.username).toLowerCase();
   const [filter, setFilter] = useState('all');
   const [idx, setIdx] = useState(0);
   const [scroll, setScroll] = useState(0);
@@ -160,7 +161,8 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel }) {
     else if (input === 'A') {
       for (const f of d.findings) if (f.status === 'pending' && f.kind !== 'reply' && f.verification.verdict === 'confirmed') f.status = 'approved';
       save();
-    } else if (input === 'p' && nPost) setMode('confirm');
+    } else if (input === 'F' && onFix && isOwn) onFix(d.findings.filter((x) => x.kind !== 'reply' && x.verification.verdict !== 'withdrawn' && x.status !== 'rejected' && x.status !== 'posted'));
+    else if (input === 'p' && nPost) setMode('confirm');
   });
 
   const leftW = Math.max(34, Math.floor(dims.w * 0.4));
@@ -205,7 +207,7 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel }) {
 
   return html`
     <${Frame} dims=${dims} title=${`#${d.pr.id} · ${trunc(d.pr.title || '', 46)}`} right=${tokens}
-      keys=${mode === 'edit' ? [['↵','save'],['esc','cancel']] : mode === 'confirm' ? [['y','post'],['n','back']] : [['↑↓','move'],['a','approve'],['x','reject'],['e','edit'],['t','comment/task'],['r','reply to thread'],['R','refresh comments'],['f','tab'],['d/u','scroll'],['p','post'],['esc','back']]}>
+      keys=${mode === 'edit' ? [['↵','save'],['esc','cancel']] : mode === 'confirm' ? [['y','post'],['n','back']] : [['↑↓','move'],['a','approve'],['x','reject'],['e','edit'],['t','comment/task'],['r','reply to thread'],['R','refresh comments'],['f','tab'],['d/u','scroll'],['p','post'],...(isOwn ? [['F','fix these in code']] : []),['esc','back']]}>
       <${Box} paddingX=${1}>
         ${FILTERS.map((f) => html`<${Text} key=${f} color=${f === filter ? C.brand : 'gray'} bold=${f === filter}>${f === filter ? '[' : ' '}${f} ${count(f)}${f === filter ? ']' : ' '} <//>`)}
         <${Text} color=${C.dim}> │ <${Text} color=${C.ok}>${approved.length} approved<//> · ${d.findings.filter((f) => f.status === 'posted').length} posted<//>

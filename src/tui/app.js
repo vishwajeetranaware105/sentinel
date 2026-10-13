@@ -39,11 +39,13 @@ export function App({ initialCfg, initialPr }) {
     saveConfig(next); setCfg(next);
     return next;
   };
-  const startReview = (pr) => {
+  const startReview = (pr, own = false) => {
     const r = new Review({ cfg, bb, model, checks: [...checks],
       target: { workspace: pr.workspace, repository: pr.repository, id: pr.id, title: pr.title, author: pr.author, src: pr.source_branch, dst: pr.destination_branch } });
-    setReview(r); setScreen('confirm');
+    r.data.own = !!own; setReview(r); setScreen('confirm');
   };
+
+  const openFix = (pr, findings = null) => { setFix(new FixSession({ cfg, bb, pr, findings })); setScreen('fix'); };
 
   const openUrl = async (ref) => {
     try {
@@ -57,11 +59,11 @@ export function App({ initialCfg, initialPr }) {
 
   if (screen === 'setup') return html`<${Setup} first=${!isConfigured(cfg)} cfg=${cfg} dims=${dims} onCancel=${() => setScreen('list')} onDone=${(c) => { setCfg(c); setModel(c.llm.model); setScreen('list'); }} />`;
   if (screen === 'confirm') return html`<${Confirm} review=${review} cfg=${cfg} dims=${dims} onModels=${(ch) => { applyModels(ch); review.setModels(ch); }} onEffort=${applyEffort} onBack=${() => setScreen('list')} onStart=${() => { review.execute(); setScreen('review'); }} />`;
-  if (screen === 'fix') return html`<${FixScreen} session=${fix} dims=${dims} onBack=${() => setScreen('list')} />`;
-  if (screen === 'review') return html`<${ReviewScreen} review=${review} cfg=${cfg} dims=${dims} onBack=${() => setScreen(review.fromHistory ? 'history' : 'list')} onUserCancel=${() => setScreen('list')} />`;
+  if (screen === 'fix') return html`<${FixScreen} session=${fix} dims=${dims} onBack=${() => setScreen('list')} onReview=${(pr) => startReview(pr, true)} />`;
+  if (screen === 'review') return html`<${ReviewScreen} review=${review} cfg=${cfg} dims=${dims} onBack=${() => setScreen(review.fromHistory ? 'history' : 'list')} onUserCancel=${() => setScreen('list')} onFix=${(findings) => openFix({ workspace: review.data.pr.workspace, repository: review.data.pr.repository, id: review.data.pr.id, title: review.data.pr.title, source_branch: review.data.pr.src, destination_branch: review.data.pr.dst }, findings)} />`;
   if (screen === 'history') return html`<${History} dims=${dims} bb=${bb} cfg=${cfg} onBack=${() => setScreen('list')} onOpen=${(r) => { setReview(r); setScreen('review'); }} />`;
   return html`<${PrList} bb=${bb} cfg=${cfg} dims=${dims} model=${model} checks=${checks} setChecks=${setChecks}
-    onReview=${startReview} onOpenUrl=${openUrl} onSettings=${() => setScreen('setup')} onHistory=${() => setScreen('history')} onQuit=${quit} onFix=${(pr) => { setFix(new FixSession({ cfg, bb, pr })); setScreen('fix'); }} onModels=${applyModels} onEffort=${applyEffort} onTheme=${applyTheme} />`;
+    onReview=${startReview} onOpenUrl=${openUrl} onSettings=${() => setScreen('setup')} onHistory=${() => setScreen('history')} onQuit=${quit} onFix=${(pr) => openFix(pr)} onModels=${applyModels} onEffort=${applyEffort} onTheme=${applyTheme} />`;
 }
 
 function History({ dims, bb, cfg, onBack, onOpen }) {

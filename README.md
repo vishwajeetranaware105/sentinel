@@ -20,11 +20,16 @@ sentinel                            # first launch walks you through setup
 
 **Effort levels** (`e` on the PR list or estimate screen): `low` (score ≥85, 6 findings), `medium` (≥80, 15), `high` (≥70, 25, plus an independent second reader that checks intent, guidelines and regressions).
 
-## Fixing comments on your own PR
+## Fixing your own PR
 
-On the **My PRs** tab press `f` on a PR. Sentinel reads the open comments from other people, checks out your PR branch in `~/.pr-sentinel/fix/`, and for each comment you select it makes the smallest code change (or tells you why it made none and drafts a reply).
+For PRs you own (the **My PRs** tab):
+1. Press `↵` to run a normal Sentinel review of your PR: bugs, breaking changes, suggestions, all verified against the code.
+2. On the review screen press `F` (or `f` on the My PRs list) to open **fix mode**. It lists Sentinel's findings first, then every open comment thread on the PR from people (including comments you posted yourself), skipping bots.
+3. Select what to fix (`space`, `a` for all) and press `↵`. For each item Sentinel makes the smallest code change in a checkout of your PR branch (in `~/.pr-sentinel/fix/`), or explains why it made none and drafts a reply. A finding that does not hold against the code is left alone.
+4. Review the diff, then `c` makes a **new commit** on top (history kept) or `m` **amends** your last commit (rewrites history, pushed with `--force-with-lease`, asks first).
+5. `p` pushes, after a `y` confirmation.
 
-You then see the diff and choose: `c` makes a **new commit** on top (safe, history kept), `m` **amends** your last commit (rewrites history, pushed with `--force-with-lease`, asks first). Nothing is committed without a key press, and nothing is pushed until you press `p` and confirm with `y`. It refuses to push to shared branches (master, main, develop, release/*) and never bypasses git hooks. Sentinel does not post replies in this mode; the suggested replies are shown so you can answer on the PR.
+Nothing is committed without a key press and nothing is pushed without a confirmation. It refuses shared branches (master, main, develop, release/*) and never bypasses git hooks. It does not post replies in this mode; suggested replies are shown so you can answer on the PR.
 
 ## Keys
 

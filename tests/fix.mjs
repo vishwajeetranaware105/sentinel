@@ -28,6 +28,7 @@ const threads = [
   { id: 4, path: 'app.js', line: 1, resolved: true, messages: [msg('Rev', 'rev', 'already resolved')] },
   { id: 5, path: 'app.js', line: 1, resolved: false, messages: [msg('Rev', 'rev', 'q'), msg('Me', 'me', 'done')] },
   { id: 6, path: null, line: null, resolved: false, messages: [msg('Bot', 'euler.bot', 'summary')] },
+  { id: 7, path: 'app.js', line: 3, resolved: false, messages: [msg('Me', 'me', 'my own review note on my PR')] },
 ];
 const answers = {
   1: { action: 'edit', edits: [{ file: 'app.js', find: '  return a + b;', replace: '  return Number(a) + Number(b);' }], summary: 'Coerce both operands to numbers in total()', reply: 'Added coercion.' },
@@ -37,13 +38,16 @@ const answers = {
 let call = 0;
 const llm = { async json(messages) { const id = +/Comment on app\.js:(\d)/.exec(messages[1].content)?.[1]; call++; return answers[{ 2: 1, 4: 2, 1: 3 }[id]]; } };
 const bb = { async discussion() { return threads; } };
-const s = new FixSession({ cfg, bb, llm, pr: { workspace: 'AX', repository: 'demo', id: 7, title: 't', source_branch: 'feature', destination_branch: 'master' } });
+const FINDING = { id: 'abc', file: 'app.js', line: 2, kind: 'bug', severity: 'major', title: 'Adds strings', body: 'total() concatenates strings', failureScenario: 'total("1","2") returns 12', verification: { verdict: 'confirmed' }, status: 'pending' };
+const s = new FixSession({ findings: [FINDING, { ...FINDING, id: 'w', verification: { verdict: 'withdrawn' } }], cfg, bb, llm, pr: { workspace: 'AX', repository: 'demo', id: 7, title: 't', source_branch: 'feature', destination_branch: 'master' } });
 
 const open = await s.load();
-ok(open.map((t) => t.id).sort().join() === '1,2,3,5', 'only open human threads are listed (resolved and bot threads left out)');
+ok(open.filter((t) => t.source === 'thread').map((t) => t.id).sort().join() === '1,2,3,5,7', 'open human threads are listed, including your own review comments (resolved and bot threads left out)');
+ok(open.find((t) => t.id === 7) && !open.find((t) => t.id === 7).answered, 'your own comment with nobody else in the thread still needs fixing');
 ok(open.find((t) => t.id === 5).answered && !open.find((t) => t.id === 1).answered, 'a thread you already answered is flagged');
 await s.prepareTree();
 ok(fs.readFileSync(path.join(s.dir, 'app.js'), 'utf8').includes('// feature'), 'checkout is the PR branch head');
+ok(open[0].source === 'finding' && open.filter((t) => t.source === 'finding').length === 1 && /Fails when/.test(open[0].messages[0].text), 'Sentinel findings come first (withdrawn ones are not offered) with their failing scenario');
 await s.proposeFor([1, 2, 3]);
 ok(s.results.get(1).status === 'applied', 'unique edit applied');
 ok(s.results.get(2).status === 'failed' && /2 places/.test(s.results.get(2).failed[0]), 'ambiguous edit is refused, not guessed');

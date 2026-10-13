@@ -7,7 +7,7 @@ const STATE_MARK = { working: '…', applied: '✓', no_change: '○', failed: '
 const stateColor = (s) => (s === 'applied' ? C.ok : s === 'failed' ? C.bad : s === 'working' ? C.brand : C.dim);
 
 /** Fix mode for your own PR: open comments -> code changes -> commit -> push. Nothing is committed or pushed without a key press. */
-export function FixScreen({ session, dims, onBack }) {
+export function FixScreen({ session, dims, onBack, onReview }) {
   const [phase, setPhase] = useState('loading');   // loading | pick | working | review | committed | pushing | pushed
   const [err, setErr] = useState(null);
   const [threads, setThreads] = useState([]);
@@ -74,6 +74,7 @@ export function FixScreen({ session, dims, onBack }) {
       else if (key.upArrow || input === 'k') setIdx(Math.max(0, idx - 1));
       else if (input === ' ' && threads[idx]) setSel((s) => { const n = new Set(s); n.has(threads[idx].id) ? n.delete(threads[idx].id) : n.add(threads[idx].id); return n; });
       else if (input === 'a') setSel((s) => (s.size === threads.length ? new Set() : new Set(threads.map((t) => t.id))));
+      else if (input === 'v' && onReview) onReview(session.pr);
       else if (key.return && threads.length) run();
     } else if (phase === 'review') {
       if (key.escape) { setPhase('pick'); setNote('Edits are still in the checkout; run again to add more, or press d on the review screen to discard.'); }
@@ -93,7 +94,7 @@ export function FixScreen({ session, dims, onBack }) {
 
   const pr = session.pr, listW = Math.max(36, Math.floor(dims.w * 0.42)), detW = dims.w - listW - 3;
   const keys = confirm ? [['y', 'yes, do it'], ['any other key', 'cancel']]
-    : phase === 'pick' ? [['↑↓', 'move'], ['space', 'select'], ['a', 'all/none'], ['↵', 'fix selected'], ['esc', 'back']]
+    : phase === 'pick' ? [['↑↓', 'move'], ['space', 'select'], ['a', 'all/none'], ['↵', 'fix selected'], ...(onReview ? [['v', 'run Sentinel review']] : []), ['esc', 'back']]
     : phase === 'review' ? [['↑↓', 'scroll diff'], ['c', 'commit'], ['m', 'amend last commit'], ['d', 'discard'], ['esc', 'back']]
     : phase === 'committed' ? [['p', 'push'], ['d', 'discard'], ['esc', 'back']]
     : [['esc', 'back']];
@@ -108,14 +109,14 @@ export function FixScreen({ session, dims, onBack }) {
       ${confirm && html`<${Text} color=${C.warn} bold>${confirm === 'push' ? `Push ${session.committed?.mode === 'amend' ? '(force-with-lease, rewrites your last commit) ' : ''}to ${session.src} on Bitbucket?` : confirm === 'amend' ? 'Amend your last commit? This rewrites history and needs a force push; reviewers may see their comments move to an older version.' : 'Discard the changes?'} y/N<//>`}
       ${phase === 'pick' && html`<${Box} gap=${2}>
         <${Box} flexDirection="column" width=${listW}>
-          ${!threads.length && !err && html`<${Text} color=${C.dim}>No open comments from other people on this PR.<//>`}
+          ${!threads.length && !err && html`<${Text} color=${C.dim}>Nothing to fix yet: no Sentinel findings and no open comments.\nPress v to run a Sentinel review of this PR (bugs, breaking changes).<//>`}
           ${threads.slice(Math.max(0, Math.min(idx - 4, threads.length - cap)), Math.max(0, Math.min(idx - 4, threads.length - cap)) + cap).map((t, k0) => {
             const k = Math.max(0, Math.min(idx - 4, threads.length - cap)) + k0, on = k === idx;
-            return html`<${Text} key=${t.id} color=${on ? C.tx : C.dim} bold=${on}>${on ? '▌' : ' '} ${sel.has(t.id) ? '◉' : '○'} ${trunc(t.path ? `${t.path.split('/').pop()}:${t.line || ''}` : 'general', listW - 14)}${t.answered ? '  (you replied)' : ''}${t.task ? '  [task]' : ''}<//>`;
+            return html`<${Text} key=${t.id} color=${on ? C.tx : C.dim} bold=${on}>${on ? '▌' : ' '} ${sel.has(t.id) ? '◉' : '○'} ${trunc(t.source === 'finding' ? `${t.label}` : (t.path ? `${t.path.split('/').pop()}:${t.line || ''}` : 'general') + `  ${t.messages[0]?.who || ''}`, listW - 16)}${t.answered ? '  (you replied)' : ''}${t.source === 'thread' && t.task ? '  [task]' : ''}<//>`;
           })}
         <//>
         <${Box} flexDirection="column" width=${detW}>
-          ${cur && html`<${F}><${Text} color=${C.brand2}>${cur.path || 'general comment'}${cur.line ? `:${cur.line}` : ''}<//>
+          ${cur && html`<${F}><${Text} color=${C.brand2}>${cur.source === 'finding' ? 'Sentinel finding · ' : 'Comment · '}${cur.path || 'general'}${cur.line ? `:${cur.line}` : ''}<//>
             ${cur.messages.slice(-4).flatMap((m) => [html`<${Text} key=${'w' + m.id} color=${C.dim} bold>${session.isMine(m) ? 'you' : m.who}<//>`, ...wrap(m.text, detW - 2).slice(0, 8).map((l, i) => html`<${Text} key=${m.id + ':' + i} color=${C.tx}>${l}<//>`)])}<//>`}
         <//>
       <//>`}

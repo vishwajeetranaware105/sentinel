@@ -81,7 +81,7 @@ export function PrList({ bb, cfg, dims, model, checks, setChecks, onReview, onOp
     else if (input === 'h') onHistory();
     else if (input === 'q') onQuit();
     else if (input === 'f' && tab === 'mine' && pr) onFix(pr);
-    else if (key.return && pr) onReview(pr);
+    else if (key.return && pr) onReview(pr, tab === 'mine');
   });
 
   async function submitUrl(v) {

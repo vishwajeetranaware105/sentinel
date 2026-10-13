@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { git, repoUrl } from './repo.js';
-import { HOME_DIR } from './config.js';
+import { HOME_DIR, RUNS_DIR } from './config.js';
 import { LLM } from './llm.js';
 
 const PROTECTED = /^(master|main|develop|development|staging|production|prod|release([/-].*)?|hotfix([/-].*)?)$/i;
@@ -18,10 +18,25 @@ Rules:
 - If the comment is a question, a discussion, or you disagree with it, use "no_change" and put your answer in "reply".
 - If you cannot be sure from the code shown, ask for a lookup instead of guessing: {"need":[{"grep":"regex","glob":"*.ext"},{"file":"path","start":1,"count":60}]} (at most 4, run for you; you then get one more turn).`;
 
+/** Findings Sentinel already produced for this PR (the newest saved run that has any): bugs, breaking changes, suggestions still worth acting on. */
+export function latestFindings(pr) {
+  let best = null;
+  try {
+    for (const f of fs.readdirSync(RUNS_DIR)) {
+      try {
+        const d = JSON.parse(fs.readFileSync(path.join(RUNS_DIR, f), 'utf8'));
+        if (d.pr?.workspace === pr.workspace && d.pr?.repository === pr.repository && String(d.pr?.id) === String(pr.id) && Array.isArray(d.findings) && d.findings.length && (!best || d.createdAt > best.createdAt)) best = d;
+      } catch {}
+    }
+  } catch {}
+  return best ? best.findings.filter((x) => x.kind !== 'reply' && x.verification?.verdict !== 'withdrawn' && x.status !== 'rejected' && x.status !== 'posted') : [];
+}
+
 /** Work on your own PR: turn open review comments into code changes in a real checkout, then commit and push on request. */
 export class FixSession extends EventEmitter {
-  constructor({ cfg, bb, pr, llm }) {
+  constructor({ cfg, bb, pr, llm, findings = null }) {
     super();
+    this.findingsIn = findings;
     this.cfg = cfg; this.bb = bb; this.pr = pr; this.llm = llm || new LLM(cfg);
     this.src = pr.source_branch; this.dst = pr.destination_branch;
     this.dir = path.join(HOME_DIR, 'fix', pr.workspace, pr.repository, `pr-${pr.id}`);
@@ -35,14 +50,26 @@ export class FixSession extends EventEmitter {
     return !!me && (m.email === me || String(m.slug).toLowerCase() === me);
   }
 
-  /** Open comment threads from other people that are not already answered by you. */
+  /**
+   * What can be fixed: Sentinel's own findings for this PR (bugs, breaking changes) first, then every open comment thread
+   * from people (including comments you posted yourself while reviewing), skipping bots.
+   */
   async load() {
-    const all = await this.bb.discussion(this.pr.workspace, this.pr.repository, this.pr.id);
-    this.threads = all.filter((t) => !t.resolved && t.messages.some((m) => !this.isMine(m) && !BOT.test(`${m.email} ${m.slug} ${m.who}`) && !/Generated with \[Claude|CURATOR_SLACK_METADATA/i.test(m.text)))
-      .map((t) => {
-        const last = t.messages[t.messages.length - 1];
-        return { ...t, answered: this.isMine(last) };
-      }).sort((a, b) => Number(a.answered) - Number(b.answered) || (a.path || '').localeCompare(b.path || '') || (a.line || 0) - (b.line || 0));
+    const live = (x) => x.kind !== 'reply' && x.verification?.verdict !== 'withdrawn' && x.status !== 'rejected' && x.status !== 'posted';
+    const fromFindings = (this.findingsIn ?? latestFindings(this.pr)).filter(live).map((f) => ({
+      id: `f:${f.id}`, source: 'finding', path: f.file || null, line: f.line || null, resolved: false, task: f.severity === 'blocker', answered: false,
+      label: `${f.kind || 'bug'}${f.severity ? ' · ' + f.severity : ''}: ${f.title || ''}`,
+      messages: [{ id: f.id, who: 'Sentinel', email: '', slug: 'sentinel', at: 0,
+        text: `${f.body || ''}${f.failureScenario ? `\nFails when: ${f.failureScenario}` : ''}` }],
+    }));
+    let all = [];
+    try { all = await this.bb.discussion(this.pr.workspace, this.pr.repository, this.pr.id); } catch (e) { this.log(`Could not read comments: ${e.message}`); }
+    const human = (m) => !BOT.test(`${m.email} ${m.slug} ${m.who}`) && !/Generated with \[Claude|CURATOR_SLACK_METADATA/i.test(m.text);
+    const fromThreads = all.filter((t) => !t.resolved && t.messages.some(human)).map((t) => {
+      const last = t.messages[t.messages.length - 1];
+      return { ...t, source: 'thread', answered: this.isMine(last) && t.messages.some((m) => !this.isMine(m) && human(m)) };
+    }).sort((a, b) => Number(a.answered) - Number(b.answered) || (a.path || '').localeCompare(b.path || '') || (a.line || 0) - (b.line || 0));
+    this.threads = [...fromFindings, ...fromThreads];
     return this.threads;
   }
 
@@ -117,8 +144,9 @@ export class FixSession extends EventEmitter {
   async fixThread(t) {
     const thread = t.messages.map((m) => `${this.isMine(m) ? 'you (author)' : m.who}: ${m.text.slice(0, 700)}`).join('\n');
     const where = t.path ? `${t.path}${t.line ? `:${t.line}` : ''}` : 'a general comment (no file)';
+    const what = t.source === 'finding' ? 'Review finding (found by an automated review of your PR; it may be wrong: check it against the code and use no_change if it does not hold)' : 'Comment';
     const code = t.path ? this.window(t.path, t.line) : '';
-    const user = `PR: ${this.pr.title}\nComment on ${where}\n\nThread:\n${thread}\n\n${code ? `The file now (line numbers on the left are not part of the file):\n${code}` : 'No file is attached to this comment. Use a lookup if you need code, or answer with no_change.'}`;
+    const user = `PR: ${this.pr.title}\n${what} on ${where}\n\nThread:\n${thread}\n\n${code ? `The file now (line numbers on the left are not part of the file):\n${code}` : 'No file is attached to this comment. Use a lookup if you need code, or answer with no_change.'}`;
     const messages = [{ role: 'system', content: FIX_SYSTEM }, { role: 'user', content: user }];
     const opts = { model: this.cfg.llm.model, maxTokens: 12000, reasoning: 'low', label: `fix ${where}` };
     let r = await this.llm.json(messages, opts);
