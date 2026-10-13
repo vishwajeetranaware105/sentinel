@@ -730,11 +730,11 @@ export class Review extends EventEmitter {
         return [g, f ? `BLOCKER ${f.file}:${f.line || '?'} ${f.title}` : 'PASS'];
       }));
     }
-    return { text, recommendation: rec, gates, post: rec !== 'incomplete' };
+    return { text, recommendation: rec, gates, post: false };      // the overview is for the reviewer only; it is never posted
   }
 
   // ---- posting: only ever called after explicit user confirmation -------------------------------
-  async post({ includeSummary = false } = {}) {
+  async post() {
     const d = this.data, { workspace: ws, repository: repo, id } = d.pr;
     const results = [];
     for (const f of d.findings.filter((x) => x.status === 'approved')) {
@@ -751,10 +751,6 @@ export class Review extends EventEmitter {
         f.status = 'posted'; f.postedId = r?.id ?? r?.comment_id ?? null; results.push({ id: f.id, ok: true });
       } catch (e) { f.status = 'failed'; f.postError = e.message; results.push({ id: f.id, ok: false, error: e.message }); }
       this.emitEvent('finding_update', { finding: f });
-    }
-    if (includeSummary && d.summary?.text && !d.summary.posted) {
-      try { await this.bb.addComment(ws, repo, id, { comment_text: cleanComment(d.summary.text), severity: 'NORMAL' }); d.summary.posted = true; results.push({ id: 'summary', ok: true }); }
-      catch (e) { results.push({ id: 'summary', ok: false, error: e.message }); }
     }
     this.persist();
     return results;

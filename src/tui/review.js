@@ -104,8 +104,7 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel, onFix })
   const cur = items[i];
   const running = d.status === 'running' || d.status === 'preparing';
   const approved = d.findings.filter((f) => f.status === 'approved');
-  const sumPost = d.summary && d.summary.post && d.summary.text && !d.summary.posted;
-  const nPost = approved.length + (sumPost ? 1 : 0);
+  const nPost = approved.length;
   const save = () => review.persist();
   const [refreshing, setRefreshing] = useState(null);
   // a review opened from history (or left open a while) may have an out-of-date conversation: re-read it once
@@ -122,7 +121,7 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel, onFix })
     if (mode === 'confirm') {
       if (input === 'y' || key.return) {
         setMode('posting');
-        review.post({ includeSummary: !!sumPost }).then((r) => { setResult(r); setMode('result'); }).catch((e) => { setResult([{ ok: false, error: e.message }]); setMode('result'); });
+        review.post().then((r) => { setResult(r); setMode('result'); }).catch((e) => { setResult([{ ok: false, error: e.message }]); setMode('result'); });
       } else if (input === 'n' || key.escape) setMode('browse');
       return;
     }
@@ -147,8 +146,8 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel, onFix })
         .catch((e) => setDrafting({ error: e.message }));
     }
     else if (input === 'a' && cur && !cur.isThread) {
-      if (cur.summary) { d.summary.post = !d.summary.post; save(); }
-      else if (cur.status !== 'posted') { cur.status = cur.status === 'approved' ? 'pending' : 'approved'; save(); }
+      if (cur.summary) return;
+      if (cur.status !== 'posted') { cur.status = cur.status === 'approved' ? 'pending' : 'approved'; save(); }
     } else if (input === 'x' && cur && !cur.summary && !cur.isThread && cur.status !== 'posted') { cur.status = cur.status === 'rejected' ? 'pending' : 'rejected'; save(); }
     else if (input === 't' && cur && !cur.summary && !cur.isThread && cur.kind !== 'reply' && cur.status !== 'posted') { cur.asTask = !cur.asTask; save(); }
     else if (input === 'e' && cur && !cur.isThread && cur.status !== 'posted') {
@@ -220,7 +219,7 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel, onFix })
             const bg = sel ? C.sel : undefined, w = leftW - 2;
             if (f.summary) return html`<${Box} key="sum" flexDirection="column">
               <${Row} width=${w} bg=${bg} segs=${[[sel ? '▌' : ' ', C.brand2], [' Review summary', C.tx, true]]} />
-              <${Row} width=${w} bg=${bg} segs=${[[sel ? '▌' : ' ', C.brand2], ['   ' + (rec === 'blocked' ? 'Blocked' : rec === 'approve' ? 'Looks good' : rec === 'incomplete' ? 'Incomplete - review did not finish' : 'Needs work') + (d.summary.post ? '' : ' (not posting)'), rec === 'blocked' ? C.bad : rec === 'approve' ? C.ok : C.warn]]} />
+              <${Row} width=${w} bg=${bg} segs=${[[sel ? '▌' : ' ', C.brand2], ['   ' + (rec === 'blocked' ? 'Blocked' : rec === 'approve' ? 'Looks good' : rec === 'incomplete' ? 'Incomplete - review did not finish' : 'Needs work'), rec === 'blocked' ? C.bad : rec === 'approve' ? C.ok : C.warn]]} />
             <//>`;
             if (f.isThread) {
               const col = f.resolved ? C.ok : C.warn;
@@ -250,7 +249,6 @@ export function ReviewScreen({ review, cfg, dims, onBack, onUserCancel, onFix })
             ${mode === 'confirm' && html`<${Box} flexDirection="column" marginTop=${1}>
               <${Text} color=${C.dim}>They will appear as you. Tasks block merge until resolved.<//>
               ${approved.slice(0, bodyH - 8).map((f) => html`<${Text} key=${f.id}>${f.kind === 'reply' ? html`<${Text} color=${C.brand2}>reply<//>` : f.asTask ? html`<${Text} color=${C.bad}>TASK<//>` : html`<${Text} color=${C.info}>note<//>`} ${trunc(`${(f.file || '').split('/').pop()}${f.line ? ':' + f.line : ''} ${f.body}`, rightW - 10)}<//>`)}
-              ${sumPost && html`<${Text}><${Text} color=${C.info}>note<//> summary: ${trunc(d.summary.text, rightW - 18)}<//>`}
               <${Box} marginTop=${1}><${Text} color=${C.ok} bold>y post · n back<//><//>
             <//>`}
             ${mode === 'posting' && html`<${Text} color=${C.brand}><${Spinner} type="dots" /> Posting…<//>`}
@@ -307,7 +305,7 @@ function detailLines(f, d, w) {
       add(''); add('Gates', { bold: true });
       for (const [k, v] of Object.entries(d.summary.gates)) { const pass = /^pass/i.test(v); wrap(`${pass ? '✓' : '✕'} ${k}: ${v}`, w).forEach((t) => add(t, { color: pass ? C.ok : C.bad })); }
     }
-    add(''); add(d.summary.post ? 'Will be posted as a normal comment (a toggles).' : 'Not posting the summary (a toggles).', { dim: true });
+    add(''); add('This overview is for you only. It is never posted to the PR.', { dim: true });
     return L;
   }
   const v = f.verification;
